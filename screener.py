@@ -117,7 +117,7 @@ def fetch_prices(codes):
         for attempt in range(3):
             try:
                 df = yf.download(part, period="1y", interval="1d", group_by="ticker",
-                                 auto_adjust=True, threads=True, progress=False)
+                                 auto_adjust=False, threads=True, progress=False)
                 break
             except Exception as e:
                 log(f"  再試行 ({e})")
