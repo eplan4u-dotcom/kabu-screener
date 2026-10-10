@@ -382,7 +382,40 @@ rows.forEach(r=>b.appendChild(r));}}
     for name, x in (("A_breakout_watch", A), ("B_breakout_today", B), ("C_quiet_streak", C), ("T_theme_spike", T)):
         x.drop(columns=drop, errors="ignore").to_csv(os.path.join(OUT, f"{name}_{date}.csv"),
                                                      index=False, encoding="utf-8-sig")
+    write_summary(df, A, B, C, T, date)
     return path
+
+
+PAGE_URL = "https://eplan4u-dotcom.github.io/kabu-screener/"
+
+
+def write_summary(df, A, B, C, T, date):
+    """メール本文（テキスト）を書き出す"""
+    def name(r):
+        return f"{r.code} {r['name']}"
+
+    def room(r):
+        return "1年高値更新" if r.room1y <= 0 else f"1年高値まで{r.room1y:.1f}%"
+
+    L = [f"東証スクリーナー {date}（対象 {len(df):,}銘柄）", "", f"結果ページ: {PAGE_URL}", ""]
+    L.append(f"■ A. ブレイク待ち（アラート候補） {len(A)}銘柄")
+    for _, r in A.iterrows():
+        L.append(f"・{name(r)}  終値{r.close:,.0f} → アラート {r.res:,.0f}（あと{r.dist:.1f}%）")
+    L += ["", f"■ B. 当日ブレイク {len(B)}銘柄"]
+    for _, r in B.iterrows():
+        L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）上値{r.res:,.0f}を突破 / 出来高{r.vol_today:.1f}倍 / {room(r)}")
+    L += ["", f"■ C. 静かな連騰 {len(C)}銘柄"]
+    for _, r in C.iterrows():
+        L.append(f"・{name(r)}  終値{r.close:,.0f}  {int(r.streak)}日連騰 / 25日線+{r.dev25:.1f}%")
+    if len(T):
+        L += ["", f"■ 別枠. テーマ急騰 {len(T)}銘柄（手法の対象外）"]
+        for _, r in T.iterrows():
+            L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）")
+    L += ["", "チャート（会社四季報）: https://shikiho.toyokeizai.net/chart/コード"]
+    with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(L) + "\n")
+    with open(os.path.join(OUT, "subject.txt"), "w", encoding="utf-8") as f:
+        f.write(f"スクリーナー {date}  A{len(A)} / B{len(B)} / C{len(C)}")
 
 
 def main():

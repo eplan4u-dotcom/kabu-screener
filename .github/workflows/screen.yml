@@ -26,3 +26,9 @@ jobs:
           git add docs
           git commit -m "screen $(date +%F)" || echo "no changes"
           git push
+      - name: mail
+        run: python send_mail.py
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
