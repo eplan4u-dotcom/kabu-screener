@@ -288,7 +288,6 @@ def write_html(df, A, B, C, T):
         ("前日比", lambda r: f'<span class="{"up" if r.chg >= 0 else "dn"}">{fmt(r.chg, 2, "%")}</span>', "chg"),
     ]
     tail = [
-        ("売買代金20日", lambda r: fmt(r.turnover20 / 1e8, 1, "億"), "turnover20"),
         ("60日", lambda r: spark_svg(r.spark, r.res), None),
         ("チャート", lambda r: links(r.code), None),
     ]
@@ -298,8 +297,6 @@ def write_html(df, A, B, C, T):
         ("上値から日数", lambda r: f"{int(r.res_age)}日", "res_age"),
         ("出来高(10日/前100日)", lambda r: fmt(r.vol10r, 2, "倍"), "vol10r"),
         ("平均値動き", lambda r: fmt(r.adr, 1, "%"), "adr"),
-        ("損切り目安(10日安値)", lambda r: f'{fmt(r.low10, 1)}<div class="sub">-{fmt(r.risk, 1, "%")}</div>', "risk"),
-        ("値動き/損切り幅", lambda r: fmt(r.rr, 1, "R"), "rr"),
         ("1年高値まで", room_txt, "room1y"),
     ] + tail
     colsB = base + [
@@ -307,7 +304,6 @@ def write_html(df, A, B, C, T):
         ("上値からの上昇", lambda r: fmt(r.ext, 1, "%"), "ext"),
         ("出来高(当日/50日)", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
         ("平均値動き", lambda r: fmt(r.adr, 1, "%"), "adr"),
-        ("損切り目安(10日安値)", lambda r: f'{fmt(r.low10, 1)}<div class="sub">-{fmt(r.risk, 1, "%")}</div>', "risk"),
         ("1年高値まで", room_txt, "room1y"),
     ] + tail
     colsT = base + [
@@ -343,6 +339,9 @@ table{{border-collapse:collapse;width:100%;white-space:nowrap}}
 th,td{{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}}
 th{{position:sticky;top:0;background:var(--card);font-size:12px;color:var(--mut);cursor:pointer;user-select:none}}
 td:nth-child(2),th:nth-child(2){{text-align:left}}
+td:nth-child(1),th:nth-child(1){{position:sticky;left:0;z-index:2;background:var(--card)}}
+td:nth-child(2),th:nth-child(2){{position:sticky;left:var(--c1w,64px);z-index:2;background:var(--card);box-shadow:6px 0 6px -6px rgba(0,0,0,.35);max-width:11em;white-space:normal}}
+th:nth-child(1),th:nth-child(2){{z-index:3}}
 .sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 </style></head><body><main>
@@ -372,6 +371,8 @@ const asc=th.dataset.asc!=='1';th.dataset.asc=asc?'1':'0';
 const rows=[...b.rows].sort((x,y)=>{{let a=x.cells[i].dataset.v,c=y.cells[i].dataset.v;const na=parseFloat(a),nc=parseFloat(c);
 if(!isNaN(na)&&!isNaN(nc))return asc?na-nc:nc-na;return asc?String(a).localeCompare(c,'ja'):String(c).localeCompare(a,'ja');}});
 rows.forEach(r=>b.appendChild(r));}}
+function fixCols(){{document.querySelectorAll('table').forEach(t=>{{const c=t.querySelector('tr>*:first-child');if(c)t.style.setProperty('--c1w',c.getBoundingClientRect().width+'px');}});}}
+window.addEventListener('load',fixCols);window.addEventListener('resize',fixCols);
 </script></body></html>"""
     path = os.path.join(OUT, f"screen_{date}.html")
     with open(path, "w", encoding="utf-8") as f:
