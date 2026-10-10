@@ -12,7 +12,7 @@ import yfinance as yf
 BASE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.environ.get("SCREENER_OUT") or os.path.join(BASE, "output")
 CACHE = os.path.join(BASE, "cache")
-JPX_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
+JPX_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xlsx"
 
 # ===== 条件（ここを書き換えると基準が変わります） =====
 CFG = dict(
