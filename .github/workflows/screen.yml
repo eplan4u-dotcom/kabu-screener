@@ -1,0 +1,28 @@
+name: daily-screen
+on:
+  schedule:
+    - cron: '30 7 * * 1-5'   # 平日 16:30（日本時間）
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python screener.py --no-open
+        env:
+          SCREENER_OUT: docs
+      - name: publish
+        run: |
+          cp docs/latest.html docs/index.html
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add docs
+          git commit -m "screen $(date +%F)" || echo "no changes"
+          git push
