@@ -249,6 +249,10 @@ def spark_svg(vals, line=None):
             f'<polyline fill="none" stroke="{col}" stroke-width="1.5" points="{pts}"/></svg>')
 
 
+def shikiho(code):
+    return f"https://shikiho.toyokeizai.net/chart/{code}"
+
+
 def links(code):
     return (f'<a href="https://kabutan.jp/stock/chart?code={code}" target="_blank">株探</a> '
             f'<a href="https://jp.tradingview.com/chart/?symbol=TSE:{code}" target="_blank">TV</a>')
@@ -278,8 +282,8 @@ def write_html(df, A, B, C, T):
     os.makedirs(OUT, exist_ok=True)
     date = df.date.max() if not df.empty else dt.date.today().isoformat()
     base = [
-        ("コード", lambda r: f"<b>{r.code}</b>", "code"),
-        ("銘柄", lambda r: f'{html.escape(r["name"])}<div class="sub">{html.escape(r.market)}・{html.escape(r.sector)}</div>', "name"),
+        ("コード", lambda r: f'<a class="nm" href="{shikiho(r.code)}" target="_blank"><b>{r.code}</b></a>', "code"),
+        ("銘柄", lambda r: f'<a class="nm" href="{shikiho(r.code)}" target="_blank">{html.escape(r["name"])}</a><div class="sub">{html.escape(r.market)}・{html.escape(r.sector)}</div>', "name"),
         ("終値", lambda r: fmt(r.close, 1), "close"),
         ("前日比", lambda r: f'<span class="{"up" if r.chg >= 0 else "dn"}">{fmt(r.chg, 2, "%")}</span>', "chg"),
     ]
@@ -340,7 +344,7 @@ th,td{{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;ver
 th{{position:sticky;top:0;background:var(--card);font-size:12px;color:var(--mut);cursor:pointer;user-select:none}}
 td:nth-child(2),th:nth-child(2){{text-align:left}}
 .sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
-a{{color:var(--acc)}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
+a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
 <p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。</p>
