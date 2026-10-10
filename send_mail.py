@@ -2,6 +2,7 @@
 """docs/summary.txt を Gmail で送る。GMAIL_USER / GMAIL_APP_PASSWORD が未設定なら何もしない"""
 import os, smtplib, sys
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from email.header import Header
 
 user = os.environ.get("GMAIL_USER", "").strip()
@@ -12,7 +13,10 @@ if not user or not pw:
     sys.exit(0)
 body = open("docs/summary.txt", encoding="utf-8").read()
 subject = open("docs/subject.txt", encoding="utf-8").read().strip()
-msg = MIMEText(body, "plain", "utf-8")
+msg = MIMEMultipart("alternative")
+msg.attach(MIMEText(body, "plain", "utf-8"))
+if os.path.exists("docs/summary.html"):
+    msg.attach(MIMEText(open("docs/summary.html", encoding="utf-8").read(), "html", "utf-8"))
 msg["Subject"] = Header(subject, "utf-8")
 msg["From"] = user
 msg["To"] = to

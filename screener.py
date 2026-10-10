@@ -415,8 +415,55 @@ def write_summary(df, A, B, C, T, date):
     L += ["", "チャート（会社四季報）: https://shikiho.toyokeizai.net/chart/コード"]
     with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
+    write_summary_html(df, A, B, C, T, date)
     with open(os.path.join(OUT, "subject.txt"), "w", encoding="utf-8") as f:
         f.write(f"スクリーナー {date}  A{len(A)} / B{len(B)} / C{len(C)}")
+
+
+def write_summary_html(df, A, B, C, T, date):
+    """読みやすいHTMLメール本文。1銘柄＝2行、銘柄名は四季報チャートへのリンク"""
+    E = html.escape
+    sec_css = "margin:28px 0 6px;padding:8px 12px;border-radius:8px;font-size:16px;font-weight:700;"
+    def head(title, n, color, bg, note):
+        return (f'<div style="{sec_css}color:{color};background:{bg};">{E(title)}　{n}銘柄</div>'
+                f'<div style="font-size:12px;color:#888;margin:0 0 4px 2px;">{E(note)}</div>')
+
+    def item(r, line2):
+        link = f'https://shikiho.toyokeizai.net/chart/{r.code}'
+        return ('<div style="padding:10px 2px;border-bottom:1px solid #e5e5e5;">'
+                f'<a href="{link}" style="color:#1a56db;text-decoration:none;font-size:16px;font-weight:600;">{E(r["name"])}</a>'
+                f'<span style="color:#888;font-size:13px;">　{r.code}</span>'
+                f'<div style="font-size:14px;color:#444;margin-top:3px;line-height:1.6;">{line2}</div></div>')
+
+    def room(r):
+        if r.room1y <= 0:
+            return '<span style="color:#d1343a;">1年高値更新</span>'
+        col = "#d97706" if r.room1y < 5 else "#666"
+        return f'<span style="color:{col};">1年高値まで{r.room1y:.1f}%</span>'
+
+    parts = [f'<div style="font-family:-apple-system,\'Hiragino Sans\',sans-serif;max-width:560px;margin:0 auto;padding:4px 8px;color:#222;">',
+             f'<div style="font-size:20px;font-weight:700;">東証スクリーナー {date}</div>',
+             f'<div style="font-size:13px;color:#888;margin:4px 0 14px;">対象 {len(df):,}銘柄</div>',
+             f'<a href="{PAGE_URL}" style="display:inline-block;background:#1a56db;color:#fff;text-decoration:none;'
+             'padding:10px 18px;border-radius:8px;font-size:15px;font-weight:600;">結果ページを開く</a>']
+    parts.append(head("A. ブレイク待ち", len(A), "#1e3a8a", "#e8efff", "上値にアラートを置く候補（上値に近い順）"))
+    for _, r in A.iterrows():
+        parts.append(item(r, f'アラート <b style="font-size:15px;color:#111;">{r.res:,.0f}</b>　あと{r.dist:.1f}%'
+                             f'<span style="color:#999;">（終値 {r.close:,.0f}）</span>'))
+    parts.append(head("B. 当日ブレイク", len(B), "#7c2d12", "#fff1e6", "上値を出来高を伴って抜けた銘柄"))
+    for _, r in B.iterrows():
+        parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b> <span style="color:#d1343a;">{r.chg:+.1f}%</span>'
+                             f'　上値 {r.res:,.0f} 突破<br>出来高 {r.vol_today:.1f}倍　{room(r)}'))
+    parts.append(head("C. 静かな連騰", len(C), "#14532d", "#e9f7ee", "急騰なしで続伸・25日線から近い"))
+    for _, r in C.iterrows():
+        parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b>　{int(r.streak)}日連騰　25日線 +{r.dev25:.1f}%'))
+    if len(T):
+        parts.append(head("別枠. テーマ急騰", len(T), "#555", "#f1f1f1", "手法の対象外（参考）"))
+        for _, r in T.iterrows():
+            parts.append(item(r, f'終値 {r.close:,.0f} <span style="color:#d1343a;">{r.chg:+.1f}%</span>'))
+    parts.append('<div style="font-size:12px;color:#999;margin-top:24px;">銘柄名をタップすると会社四季報のチャートが開きます。</div></div>')
+    with open(os.path.join(OUT, "summary.html"), "w", encoding="utf-8") as f:
+        f.write("".join(parts))
 
 
 def main():
