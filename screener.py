@@ -177,7 +177,7 @@ def analyze(d):
             break
 
     return dict(
-        close=close, chg=(c[-1] / c[-2] - 1) * 100, turnover20=turnover20, adr=adr,
+        close=close, chg=(c[-1] / c[-2] - 1) * 100, turnover20=turnover20, adr=adr, adr_yen=close * adr / 100,
         ma5=ma5[-1], ma25=ma25[-1], ma50=ma50[-1],
         ma25_up=ma25[-1] > ma25[-6], ma50_up=ma50[-1] >= ma50[-11] * 0.99,   # 50日線が下向きでない
         dev25=(close / ma25[-1] - 1) * 100,
@@ -324,6 +324,14 @@ def shikiho_co(code):
     return f"https://shikiho.toyokeizai.net/stocks/{code}"
 
 
+def name_cell(r):
+    """1行目: 銘柄名（四季報企業ページ）／2行目: コード（四季報チャート）・業種・株探"""
+    sector = html.escape(str(r.sector)).replace("・", "")
+    return (f'<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a>'
+            f'<div class="sub"><a class="nm" href="{shikiho(r.code)}" target="_blank">{r.code}</a>・{sector}・'
+            f'<a href="https://kabutan.jp/stock/chart?code={r.code}" target="_blank">株探</a></div>')
+
+
 def links(code):
     return (f'<a href="https://kabutan.jp/stock/chart?code={code}" target="_blank">株探</a> '
             f'<a href="https://jp.tradingview.com/chart/?symbol=TSE:{code}" target="_blank">TV</a>')
@@ -360,51 +368,49 @@ def write_html(df, A, B, C, T):
     os.makedirs(OUT, exist_ok=True)
     date = df.date.max() if not df.empty else dt.date.today().isoformat()
     base = [
-        ("コード", lambda r: f'<a class="nm" href="{shikiho(r.code)}" target="_blank"><b>{r.code}</b></a>', "code"),
-        ("銘柄", lambda r: f'<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a><div class="sub">{html.escape(r.market)}・{html.escape(r.sector)}</div>', "name"),
+        ("銘柄", name_cell, "code"),
         ("終値", lambda r: fmt(r.close, 1), "close"),
         ("前日比", lambda r: f'<span class="{"up" if r.chg >= 0 else "dn"}">{fmt(r.chg, 2, "%")}</span>', "chg"),
     ]
     tail = [
         ("60日", lambda r: spark_svg(r.spark, r.res), None),
-        ("チャート", lambda r: links(r.code), None),
     ]
     colsA = base + [
-        ("上値(アラート)", lambda r: f"<b>{fmt(r.res, 1)}</b>", "res"),
-        ("上値まで", lambda r: fmt(r.dist, 1, "%"), "dist"),
-        ("上値から日数", lambda r: f"{int(r.res_age)}日", "res_age"),
-        ("出来高(10日/前100日)", lambda r: fmt(r.vol10r, 2, "倍"), "vol10r"),
-        ("平均値動き", lambda r: fmt(r.adr, 1, "%"), "adr"),
+        ("アラート", lambda r: f"<b>{fmt(r.res, 1)}</b>", "res"),
+        ("あと", lambda r: fmt(r.dist, 1, "%"), "dist"),
+        ("経過", lambda r: f"{int(r.res_age)}日", "res_age"),
+        ("出来高比", lambda r: fmt(r.vol10r, 2, "倍"), "vol10r"),
+        ("値幅", lambda r: f"{fmt(r.adr_yen, 0)}円", "adr_yen"),
         ("信用倍率", ratio_txt, "m_ratio"),
-        ("買残の増減", buychg_txt, "m_wpct"),
-        ("1年高値まで", room_txt, "room1y"),
+        ("買残", buychg_txt, "m_wpct"),
+        ("年高まで", room_txt, "room1y"),
     ] + tail
     colsB = base + [
         ("抜けた上値", lambda r: fmt(r.res, 1), "res"),
         ("上値からの上昇", lambda r: fmt(r.ext, 1, "%"), "ext"),
-        ("出来高(当日/50日)", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
-        ("平均値動き", lambda r: fmt(r.adr, 1, "%"), "adr"),
+        ("出来高比", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
+        ("値幅", lambda r: f"{fmt(r.adr_yen, 0)}円", "adr_yen"),
         ("信用倍率", ratio_txt, "m_ratio"),
-        ("買残の増減", buychg_txt, "m_wpct"),
-        ("1年高値まで", room_txt, "room1y"),
+        ("買残", buychg_txt, "m_wpct"),
+        ("年高まで", room_txt, "room1y"),
     ] + tail
     colsT = base + [
         ("抜けた上値", lambda r: fmt(r.res, 1), "res"),
-        ("出来高(当日/50日)", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
+        ("出来高比", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
         ("25日線乖離", lambda r: fmt(r.dev25, 1, "%"), "dev25"),
         ("信用倍率", ratio_txt, "m_ratio"),
-        ("買残の増減", buychg_txt, "m_wpct"),
-        ("1年高値まで", room_txt, "room1y"),
+        ("買残", buychg_txt, "m_wpct"),
+        ("年高まで", room_txt, "room1y"),
     ] + tail
     colsC = base + [
         ("連騰", lambda r: f"<b>{int(r.streak)}日</b>", "streak"),
         ("最大上昇/日", lambda r: fmt(r.max_gain, 1, "%"), "max_gain"),
         ("25日線乖離", lambda r: fmt(r.dev25, 1, "%"), "dev25"),
-        ("出来高(5日/50日)", lambda r: fmt(r.vol5r, 2, "倍"), "vol5r"),
-        ("上値まで", lambda r: fmt(r.dist, 1, "%") if r.dist >= 0 else "高値更新中", "dist"),
+        ("出来高比", lambda r: fmt(r.vol5r, 2, "倍"), "vol5r"),
+        ("あと", lambda r: fmt(r.dist, 1, "%") if r.dist >= 0 else "高値更新中", "dist"),
         ("信用倍率", ratio_txt, "m_ratio"),
-        ("買残の増減", buychg_txt, "m_wpct"),
-        ("1年高値まで", room_txt, "room1y"),
+        ("買残", buychg_txt, "m_wpct"),
+        ("年高まで", room_txt, "room1y"),
     ] + tail
 
     cfg_txt = (f"売買代金{CFG['min_turnover']/1e8:.0f}億円以上・株価{CFG['min_price']}円以上／"
@@ -424,10 +430,10 @@ h1{{font-size:22px;margin:0 0 4px}} h2{{font-size:17px;margin:32px 0 4px}}
 table{{border-collapse:collapse;width:100%;white-space:nowrap}}
 th,td{{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}}
 th{{position:sticky;top:0;background:var(--card);font-size:12px;color:var(--mut);cursor:pointer;user-select:none}}
-td:nth-child(2),th:nth-child(2){{text-align:left}}
-td:nth-child(1),th:nth-child(1){{position:sticky;left:0;z-index:2;background:var(--card)}}
-td:nth-child(2),th:nth-child(2){{position:sticky;left:var(--c1w,64px);z-index:2;background:var(--card);box-shadow:6px 0 6px -6px rgba(0,0,0,.35);max-width:11em;white-space:normal}}
-th:nth-child(1),th:nth-child(2){{z-index:3}}
+td:nth-child(1),th:nth-child(1){{text-align:left;position:sticky;left:0;z-index:2;background:var(--card);
+  box-shadow:6px 0 6px -6px rgba(0,0,0,.35);min-width:8.5em;max-width:11em;white-space:normal;line-height:1.35}}
+th:nth-child(1){{z-index:3}}
+td:nth-child(1) .sub{{white-space:nowrap}}
 .sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 </style></head><body><main>
@@ -457,8 +463,7 @@ const asc=th.dataset.asc!=='1';th.dataset.asc=asc?'1':'0';
 const rows=[...b.rows].sort((x,y)=>{{let a=x.cells[i].dataset.v,c=y.cells[i].dataset.v;const na=parseFloat(a),nc=parseFloat(c);
 if(!isNaN(na)&&!isNaN(nc))return asc?na-nc:nc-na;return asc?String(a).localeCompare(c,'ja'):String(c).localeCompare(a,'ja');}});
 rows.forEach(r=>b.appendChild(r));}}
-function fixCols(){{document.querySelectorAll('table').forEach(t=>{{const c=t.querySelector('tr>*:first-child');if(c)t.style.setProperty('--c1w',c.getBoundingClientRect().width+'px');}});}}
-window.addEventListener('load',fixCols);window.addEventListener('resize',fixCols);
+
 </script></body></html>"""
     path = os.path.join(OUT, f"screen_{date}.html")
     with open(path, "w", encoding="utf-8") as f:
