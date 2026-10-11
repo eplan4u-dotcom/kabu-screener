@@ -393,7 +393,7 @@ PAGE_URL = "https://eplan4u-dotcom.github.io/kabu-screener/"
 def write_summary(df, A, B, C, T, date):
     """メール本文（テキスト）を書き出す"""
     def name(r):
-        return f"{r.code} {r['name']}"
+        return f"{r.code} {r['name']}（{r.get('sector', '')}）"
 
     def room(r):
         return "1年高値更新" if r.room1y <= 0 else f"1年高値まで{r.room1y:.1f}%"
@@ -432,7 +432,7 @@ def write_summary_html(df, A, B, C, T, date):
         link = f'https://shikiho.toyokeizai.net/chart/{r.code}'
         return ('<div style="padding:10px 2px;border-bottom:1px solid #e5e5e5;">'
                 f'<a href="{link}" style="color:#1a56db;text-decoration:none;font-size:16px;font-weight:600;">{E(r["name"])}</a>'
-                f'<span style="color:#888;font-size:13px;">　{r.code}</span>'
+                f'<span style="color:#888;font-size:13px;">　{r.code}・{E(str(r.get("sector", "")))}</span>'
                 f'<div style="font-size:14px;color:#444;margin-top:3px;line-height:1.6;">{line2}</div></div>')
 
     def room(r):
