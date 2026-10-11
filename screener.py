@@ -377,7 +377,7 @@ def write_html(df, A, B, C, T):
         ("前日比", lambda r: f'<span class="{"up" if r.chg >= 0 else "dn"}">{fmt(r.chg, 2, "%")}</span>', "chg"),
     ]
     tail = [
-        ("60日", lambda r: spark_svg(r.spark, r.res), None),
+        ("60日", lambda r: f'<a href="{tv(r.code)}" target="_blank" class="spark">{spark_svg(r.spark, r.res)}</a>', None),
     ]
     colsA = base + [
         ("アラート", lambda r: f"<b>{fmt(r.res, 1)}</b>", "res"),
@@ -438,6 +438,7 @@ td:nth-child(1),th:nth-child(1){{text-align:left;position:sticky;left:0;z-index:
   box-shadow:6px 0 6px -6px rgba(0,0,0,.35);min-width:8.5em;max-width:11em;white-space:normal;line-height:1.35}}
 th:nth-child(1){{z-index:3}}
 td:nth-child(1) .sub{{white-space:nowrap}}
+a.spark{{display:inline-block;padding:4px 0}} a.spark svg{{display:block}}
 .sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 </style></head><body><main>
