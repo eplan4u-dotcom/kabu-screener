@@ -290,7 +290,7 @@ def margin_html(r):
         col = "#d97706" if _num(r.m_wpct) and r.m_wpct >= 10 else "#444"
         pct = f"（{r.m_wpct:+.0f}%）" if _num(r.m_wpct) else ""
         w = f'　<span style="color:{col};">買残 週{man(r.m_wbuy)}{pct}</span>'
-    return f'<br><span style="font-size:13px;">{ratio}{w}<span style="color:#999;">　前日{man(r.m_dbuy)}</span></span>'
+    return f'<span style="font-size:13px;">{ratio}{w}<span style="color:#999;">　前日{man(r.m_dbuy)}</span></span>'
 
 
 def room_txt(r):
@@ -324,11 +324,15 @@ def shikiho_co(code):
     return f"https://shikiho.toyokeizai.net/stocks/{code}"
 
 
+def tv(code):
+    return f"https://jp.tradingview.com/chart/?symbol=TSE:{code}"
+
+
 def name_cell(r):
-    """1行目: 銘柄名（四季報企業ページ）／2行目: コード（四季報チャート）・業種・株探"""
+    """1行目: 銘柄名（四季報企業ページ）／2行目: コード（TradingView）・業種・株探"""
     sector = html.escape(str(r.sector)).replace("・", "")
     return (f'<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a>'
-            f'<div class="sub"><a class="nm" href="{shikiho(r.code)}" target="_blank">{r.code}</a>・{sector}・'
+            f'<div class="sub"><a class="nm" href="{tv(r.code)}" target="_blank">{r.code}</a>・{sector}・'
             f'<a href="https://kabutan.jp/stock/chart?code={r.code}" target="_blank">株探</a></div>')
 
 
@@ -517,14 +521,15 @@ def write_summary_html(df, A, B, C, T, date):
     sec_css = "margin:28px 0 6px;padding:8px 12px;border-radius:8px;font-size:16px;font-weight:700;"
     def head(title, n, color, bg, note):
         return (f'<div style="{sec_css}color:{color};background:{bg};">{E(title)}　{n}銘柄</div>'
-                f'<div style="font-size:12px;color:#888;margin:0 0 4px 2px;">{E(note)}</div>')
+                f'<div style="font-size:12px;color:#888;margin:0 0 4px 2px;">{E(note)}</div><br>')
 
-    def item(r, line2):
-        link = shikiho_co(r.code)
-        return ('<div style="padding:10px 2px;border-bottom:1px solid #e5e5e5;">'
-                f'<a href="{link}" style="color:#1a56db;text-decoration:none;font-size:16px;font-weight:600;">{E(r["name"])}</a>'
-                f'<span style="color:#888;font-size:13px;">　{r.code}・{E(str(r.get("sector", "")))}</span>'
-                f'<div style="font-size:14px;color:#444;margin-top:3px;line-height:1.6;">{line2}</div></div>')
+    def item(r, line1):
+        """1行目: 銘柄名・コード・業種＋内容／2行目: 信用倍率…／銘柄間は空行"""
+        m = margin_html(r)
+        return (f'<a href="{shikiho_co(r.code)}" style="color:#1a56db;text-decoration:none;font-weight:600;">{E(r["name"])}</a>'
+                f' <a href="{tv(r.code)}" style="color:#888;font-size:13px;text-decoration:none;">{r.code}</a>'
+                f'<span style="color:#888;font-size:13px;">・{E(str(r.get("sector", "")))}</span>　{line1}'
+                + (f'<br>{m}' if m else '') + '<br><br>')
 
     def room(r):
         if r.room1y <= 0:
@@ -536,24 +541,24 @@ def write_summary_html(df, A, B, C, T, date):
              f'<div style="font-size:20px;font-weight:700;">東証スクリーナー {date}</div>',
              f'<div style="font-size:13px;color:#888;margin:4px 0 14px;">対象 {len(df):,}銘柄</div>',
              f'<a href="{PAGE_URL}" style="display:inline-block;background:#1a56db;color:#fff;text-decoration:none;'
-             'padding:10px 18px;border-radius:8px;font-size:15px;font-weight:600;">結果ページを開く</a>']
+             'padding:10px 18px;border-radius:8px;font-size:15px;font-weight:600;">結果ページを開く</a><br>']
     parts.append(head("A. ブレイク待ち", len(A), "#1e3a8a", "#e8efff", "上値にアラートを置く候補（上値に近い順）"))
     for _, r in A.iterrows():
-        parts.append(item(r, f'アラート <b style="font-size:15px;color:#111;">{r.res:,.0f}</b>　あと{r.dist:.1f}%'
-                             f'<span style="color:#999;">（終値 {r.close:,.0f}）</span>{margin_html(r)}'))
+        parts.append(item(r, f'アラート <b>{r.res:,.0f}</b>　あと{r.dist:.1f}%'
+                             f'<span style="color:#999;">（終値 {r.close:,.0f}）</span>'))
     parts.append(head("B. 当日ブレイク", len(B), "#7c2d12", "#fff1e6", "上値を出来高を伴って抜けた銘柄"))
     for _, r in B.iterrows():
-        parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b> <span style="color:#d1343a;">{r.chg:+.1f}%</span>'
-                             f'　上値 {r.res:,.0f} 突破<br>出来高 {r.vol_today:.1f}倍　{room(r)}{margin_html(r)}'))
+        parts.append(item(r, f'終値 <b>{r.close:,.0f}</b> <span style="color:#d1343a;">{r.chg:+.1f}%</span>'
+                             f'　上値 {r.res:,.0f} 突破　出来高 {r.vol_today:.1f}倍　{room(r)}'))
     parts.append(head("C. 静かな連騰", len(C), "#14532d", "#e9f7ee", "急騰なしで続伸・25日線から近い"))
     for _, r in C.iterrows():
-        parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b>　{int(r.streak)}日連騰　25日線 +{r.dev25:.1f}%{margin_html(r)}'))
+        parts.append(item(r, f'終値 <b>{r.close:,.0f}</b>　{int(r.streak)}日連騰　25日線 +{r.dev25:.1f}%'))
     if len(T):
         parts.append(head("別枠. テーマ急騰", len(T), "#555", "#f1f1f1", "手法の対象外（参考）"))
         for _, r in T.iterrows():
             parts.append(item(r, f'終値 {r.close:,.0f} <span style="color:#d1343a;">{r.chg:+.1f}%</span>'))
     parts.append(f'<div style="font-size:12px;color:#999;margin-top:24px;">{E(margin_note())}</div>')
-    parts.append('<div style="font-size:12px;color:#999;margin-top:6px;">銘柄名をタップすると会社四季報の企業ページが開きます。</div></div>')
+    parts.append('<div style="font-size:12px;color:#999;margin-top:6px;">銘柄名をタップすると会社四季報の企業ページ、コードをタップするとTradingViewのチャートが開きます。</div></div>')
     with open(os.path.join(OUT, "summary.html"), "w", encoding="utf-8") as f:
         f.write("".join(parts))
 
