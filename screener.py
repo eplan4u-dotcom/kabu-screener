@@ -253,6 +253,10 @@ def shikiho(code):
     return f"https://shikiho.toyokeizai.net/chart/{code}"
 
 
+def shikiho_co(code):
+    return f"https://shikiho.toyokeizai.net/stocks/{code}"
+
+
 def links(code):
     return (f'<a href="https://kabutan.jp/stock/chart?code={code}" target="_blank">株探</a> '
             f'<a href="https://jp.tradingview.com/chart/?symbol=TSE:{code}" target="_blank">TV</a>')
@@ -283,7 +287,7 @@ def write_html(df, A, B, C, T):
     date = df.date.max() if not df.empty else dt.date.today().isoformat()
     base = [
         ("コード", lambda r: f'<a class="nm" href="{shikiho(r.code)}" target="_blank"><b>{r.code}</b></a>', "code"),
-        ("銘柄", lambda r: f'<a class="nm" href="{shikiho(r.code)}" target="_blank">{html.escape(r["name"])}</a><div class="sub">{html.escape(r.market)}・{html.escape(r.sector)}</div>', "name"),
+        ("銘柄", lambda r: f'<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a><div class="sub">{html.escape(r.market)}・{html.escape(r.sector)}</div>', "name"),
         ("終値", lambda r: fmt(r.close, 1), "close"),
         ("前日比", lambda r: f'<span class="{"up" if r.chg >= 0 else "dn"}">{fmt(r.chg, 2, "%")}</span>', "chg"),
     ]
@@ -412,7 +416,7 @@ def write_summary(df, A, B, C, T, date):
         L += ["", f"■ 別枠. テーマ急騰 {len(T)}銘柄（手法の対象外）"]
         for _, r in T.iterrows():
             L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）")
-    L += ["", "チャート（会社四季報）: https://shikiho.toyokeizai.net/chart/コード"]
+    L += ["", "企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード"]
     with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
     write_summary_html(df, A, B, C, T, date)
@@ -429,7 +433,7 @@ def write_summary_html(df, A, B, C, T, date):
                 f'<div style="font-size:12px;color:#888;margin:0 0 4px 2px;">{E(note)}</div>')
 
     def item(r, line2):
-        link = f'https://shikiho.toyokeizai.net/chart/{r.code}'
+        link = shikiho_co(r.code)
         return ('<div style="padding:10px 2px;border-bottom:1px solid #e5e5e5;">'
                 f'<a href="{link}" style="color:#1a56db;text-decoration:none;font-size:16px;font-weight:600;">{E(r["name"])}</a>'
                 f'<span style="color:#888;font-size:13px;">　{r.code}・{E(str(r.get("sector", "")))}</span>'
@@ -461,7 +465,7 @@ def write_summary_html(df, A, B, C, T, date):
         parts.append(head("別枠. テーマ急騰", len(T), "#555", "#f1f1f1", "手法の対象外（参考）"))
         for _, r in T.iterrows():
             parts.append(item(r, f'終値 {r.close:,.0f} <span style="color:#d1343a;">{r.chg:+.1f}%</span>'))
-    parts.append('<div style="font-size:12px;color:#999;margin-top:24px;">銘柄名をタップすると会社四季報のチャートが開きます。</div></div>')
+    parts.append('<div style="font-size:12px;color:#999;margin-top:24px;">銘柄名をタップすると会社四季報の企業ページが開きます。</div></div>')
     with open(os.path.join(OUT, "summary.html"), "w", encoding="utf-8") as f:
         f.write("".join(parts))
 
