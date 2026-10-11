@@ -23,7 +23,7 @@ jobs:
           cp docs/latest.html docs/index.html
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add docs
+          git add docs data
           git commit -m "screen $(date +%F)" || echo "no changes"
           git push
       - name: mail

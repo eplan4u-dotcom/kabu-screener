@@ -6,6 +6,8 @@
 import os, re, sys, time, datetime as dt, pickle, urllib.request, urllib.parse, webbrowser, html, json
 
 import numpy as np
+
+import margin
 import pandas as pd
 import yfinance as yf
 
@@ -36,6 +38,9 @@ CFG = dict(
     theme_vol=10.0,        # 当日ブレイク：出来高が50日平均のこの倍数以上もテーマ急騰として別枠へ
 )
 # ======================================================
+
+
+MARGIN, MARGIN_INFO = {}, {}
 
 
 def log(msg):
@@ -195,6 +200,9 @@ def screen(universe, prices):
         if a is None or a["close"] < CFG["min_price"] or a["turnover20"] < CFG["min_turnover"]:
             continue
         a.update(code=u.code, name=u["name"], market=u.market, sector=u.sector)
+        m = MARGIN.get(u.code) or {}
+        a.update(m_ratio=m.get("ratio"), m_buy=m.get("buy"), m_sell=m.get("sell"),
+                 m_dbuy=m.get("dbuy"), m_wbuy=m.get("wbuy"), m_wpct=m.get("wpct"))
         rows.append(a)
     df = pd.DataFrame(rows)
     if df.empty:
@@ -224,6 +232,65 @@ def screen(universe, prices):
            & (df.dev25 <= CFG["c_max_dev25"])].copy()
     C = C.sort_values(["streak", "turnover20"], ascending=[False, False])
     return df, A, B, C, T
+
+
+def _num(x):
+    return x is not None and not (isinstance(x, float) and np.isnan(x))
+
+
+def man(x, sign=True):
+    """株数を「万」表記に（例: -66700 → -6.7万）"""
+    if not _num(x):
+        return "-"
+    x = float(x)
+    s = "+" if sign and x > 0 else ""
+    return f"{s}{x / 1e4:,.1f}万" if abs(x) >= 10000 else f"{s}{x:,.0f}"
+
+
+def ratio_txt(r):
+    if not _num(r.m_buy):
+        return "-"
+    if not _num(r.m_ratio):
+        return '<span class="sub">売残0</span>'
+    cls = ' class="warn"' if r.m_ratio >= 5 else ""
+    return f'<span{cls}>{r.m_ratio:.2f}倍</span>'
+
+
+def buychg_txt(r):
+    if not _num(r.m_buy):
+        return "-"
+    w = ""
+    if _num(r.m_wbuy):
+        pct = f"（{r.m_wpct:+.0f}%）" if _num(r.m_wpct) else ""
+        cls = ' class="warn"' if _num(r.m_wpct) and r.m_wpct >= 10 else ""
+        w = f'<span{cls}>週 {man(r.m_wbuy)}{pct}</span>'
+    return f'{w}<div class="sub">前日 {man(r.m_dbuy)}・残 {man(r.m_buy, False)}</div>'
+
+
+def margin_plain(r):
+    """メール（テキスト）用の一行"""
+    if not _num(r.m_buy):
+        return ""
+    ratio = f"{r.m_ratio:.2f}倍" if _num(r.m_ratio) else "売残0"
+    w = f" 週{man(r.m_wbuy)}" if _num(r.m_wbuy) else ""
+    return f" / 信用倍率{ratio} 買残{w} 前日{man(r.m_dbuy)}"
+
+
+def margin_html(r):
+    """メール（HTML）用"""
+    if not _num(r.m_buy):
+        return ""
+    if _num(r.m_ratio):
+        col = "#d97706" if r.m_ratio >= 5 else "#444"
+        ratio = f'<span style="color:{col};">信用倍率 {r.m_ratio:.2f}倍</span>'
+    else:
+        ratio = '信用倍率 売残0'
+    w = ""
+    if _num(r.m_wbuy):
+        col = "#d97706" if _num(r.m_wpct) and r.m_wpct >= 10 else "#444"
+        pct = f"（{r.m_wpct:+.0f}%）" if _num(r.m_wpct) else ""
+        w = f'　<span style="color:{col};">買残 週{man(r.m_wbuy)}{pct}</span>'
+    return f'<br><span style="font-size:13px;">{ratio}{w}<span style="color:#999;">　前日{man(r.m_dbuy)}</span></span>'
 
 
 def room_txt(r):
@@ -282,6 +349,13 @@ def table(df, cols, line_col=None):
     return f'<div class="wrap"><table><thead><tr>{head}</tr></thead><tbody>{"".join(body)}</tbody></table></div>'
 
 
+def margin_note():
+    if not MARGIN_INFO:
+        return "信用残は取得できませんでした。"
+    base = f"、週＝{MARGIN_INFO['base']}比" if MARGIN_INFO.get("base") else ""
+    return f"信用残はJPX公表 {MARGIN_INFO['date']}申込現在（前日比{base}）。信用倍率5倍以上・買残が週+10%以上はオレンジ。"
+
+
 def write_html(df, A, B, C, T):
     os.makedirs(OUT, exist_ok=True)
     date = df.date.max() if not df.empty else dt.date.today().isoformat()
@@ -301,6 +375,8 @@ def write_html(df, A, B, C, T):
         ("上値から日数", lambda r: f"{int(r.res_age)}日", "res_age"),
         ("出来高(10日/前100日)", lambda r: fmt(r.vol10r, 2, "倍"), "vol10r"),
         ("平均値動き", lambda r: fmt(r.adr, 1, "%"), "adr"),
+        ("信用倍率", ratio_txt, "m_ratio"),
+        ("買残の増減", buychg_txt, "m_wpct"),
         ("1年高値まで", room_txt, "room1y"),
     ] + tail
     colsB = base + [
@@ -308,12 +384,16 @@ def write_html(df, A, B, C, T):
         ("上値からの上昇", lambda r: fmt(r.ext, 1, "%"), "ext"),
         ("出来高(当日/50日)", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
         ("平均値動き", lambda r: fmt(r.adr, 1, "%"), "adr"),
+        ("信用倍率", ratio_txt, "m_ratio"),
+        ("買残の増減", buychg_txt, "m_wpct"),
         ("1年高値まで", room_txt, "room1y"),
     ] + tail
     colsT = base + [
         ("抜けた上値", lambda r: fmt(r.res, 1), "res"),
         ("出来高(当日/50日)", lambda r: fmt(r.vol_today, 1, "倍"), "vol_today"),
         ("25日線乖離", lambda r: fmt(r.dev25, 1, "%"), "dev25"),
+        ("信用倍率", ratio_txt, "m_ratio"),
+        ("買残の増減", buychg_txt, "m_wpct"),
         ("1年高値まで", room_txt, "room1y"),
     ] + tail
     colsC = base + [
@@ -322,6 +402,8 @@ def write_html(df, A, B, C, T):
         ("25日線乖離", lambda r: fmt(r.dev25, 1, "%"), "dev25"),
         ("出来高(5日/50日)", lambda r: fmt(r.vol5r, 2, "倍"), "vol5r"),
         ("上値まで", lambda r: fmt(r.dist, 1, "%") if r.dist >= 0 else "高値更新中", "dist"),
+        ("信用倍率", ratio_txt, "m_ratio"),
+        ("買残の増減", buychg_txt, "m_wpct"),
         ("1年高値まで", room_txt, "room1y"),
     ] + tail
 
@@ -350,7 +432,7 @@ th:nth-child(1),th:nth-child(2){{z-index:3}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
-<p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。</p>
+<p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。{html.escape(margin_note())}</p>
 <div class="tabs"><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
 
 <h2 id="a">A. ブレイク待ち（アラート候補） {len(A)}銘柄</h2>
@@ -405,18 +487,18 @@ def write_summary(df, A, B, C, T, date):
     L = [f"東証スクリーナー {date}（対象 {len(df):,}銘柄）", "", f"結果ページ: {PAGE_URL}", ""]
     L.append(f"■ A. ブレイク待ち（アラート候補） {len(A)}銘柄")
     for _, r in A.iterrows():
-        L.append(f"・{name(r)}  終値{r.close:,.0f} → アラート {r.res:,.0f}（あと{r.dist:.1f}%）")
+        L.append(f"・{name(r)}  終値{r.close:,.0f} → アラート {r.res:,.0f}（あと{r.dist:.1f}%）{margin_plain(r)}")
     L += ["", f"■ B. 当日ブレイク {len(B)}銘柄"]
     for _, r in B.iterrows():
-        L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）上値{r.res:,.0f}を突破 / 出来高{r.vol_today:.1f}倍 / {room(r)}")
+        L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）上値{r.res:,.0f}を突破 / 出来高{r.vol_today:.1f}倍 / {room(r)}{margin_plain(r)}")
     L += ["", f"■ C. 静かな連騰 {len(C)}銘柄"]
     for _, r in C.iterrows():
-        L.append(f"・{name(r)}  終値{r.close:,.0f}  {int(r.streak)}日連騰 / 25日線+{r.dev25:.1f}%")
+        L.append(f"・{name(r)}  終値{r.close:,.0f}  {int(r.streak)}日連騰 / 25日線+{r.dev25:.1f}%{margin_plain(r)}")
     if len(T):
         L += ["", f"■ 別枠. テーマ急騰 {len(T)}銘柄（手法の対象外）"]
         for _, r in T.iterrows():
             L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）")
-    L += ["", "企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード"]
+    L += ["", margin_note(), "企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード"]
     with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
     write_summary_html(df, A, B, C, T, date)
@@ -453,19 +535,20 @@ def write_summary_html(df, A, B, C, T, date):
     parts.append(head("A. ブレイク待ち", len(A), "#1e3a8a", "#e8efff", "上値にアラートを置く候補（上値に近い順）"))
     for _, r in A.iterrows():
         parts.append(item(r, f'アラート <b style="font-size:15px;color:#111;">{r.res:,.0f}</b>　あと{r.dist:.1f}%'
-                             f'<span style="color:#999;">（終値 {r.close:,.0f}）</span>'))
+                             f'<span style="color:#999;">（終値 {r.close:,.0f}）</span>{margin_html(r)}'))
     parts.append(head("B. 当日ブレイク", len(B), "#7c2d12", "#fff1e6", "上値を出来高を伴って抜けた銘柄"))
     for _, r in B.iterrows():
         parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b> <span style="color:#d1343a;">{r.chg:+.1f}%</span>'
-                             f'　上値 {r.res:,.0f} 突破<br>出来高 {r.vol_today:.1f}倍　{room(r)}'))
+                             f'　上値 {r.res:,.0f} 突破<br>出来高 {r.vol_today:.1f}倍　{room(r)}{margin_html(r)}'))
     parts.append(head("C. 静かな連騰", len(C), "#14532d", "#e9f7ee", "急騰なしで続伸・25日線から近い"))
     for _, r in C.iterrows():
-        parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b>　{int(r.streak)}日連騰　25日線 +{r.dev25:.1f}%'))
+        parts.append(item(r, f'終値 <b style="color:#111;">{r.close:,.0f}</b>　{int(r.streak)}日連騰　25日線 +{r.dev25:.1f}%{margin_html(r)}'))
     if len(T):
         parts.append(head("別枠. テーマ急騰", len(T), "#555", "#f1f1f1", "手法の対象外（参考）"))
         for _, r in T.iterrows():
             parts.append(item(r, f'終値 {r.close:,.0f} <span style="color:#d1343a;">{r.chg:+.1f}%</span>'))
-    parts.append('<div style="font-size:12px;color:#999;margin-top:24px;">銘柄名をタップすると会社四季報の企業ページが開きます。</div></div>')
+    parts.append(f'<div style="font-size:12px;color:#999;margin-top:24px;">{E(margin_note())}</div>')
+    parts.append('<div style="font-size:12px;color:#999;margin-top:6px;">銘柄名をタップすると会社四季報の企業ページが開きます。</div></div>')
     with open(os.path.join(OUT, "summary.html"), "w", encoding="utf-8") as f:
         f.write("".join(parts))
 
@@ -475,6 +558,14 @@ def main():
     uni = load_universe()
     log(f"対象銘柄: {len(uni):,}")
     prices = fetch_prices(uni.code.tolist())
+    log("信用残を取得中...")
+    try:
+        m, info = margin.load(log)
+        MARGIN.update(m)
+        MARGIN_INFO.update(info)
+        log(f"信用残: {len(m):,}銘柄（{info.get('date')}）")
+    except Exception as e:
+        log(f"信用残の取得に失敗（表示なしで続行）: {e}")
     log(f"株価データ取得: {len(prices):,}銘柄")
     df, A, B, C, T = screen(uni, prices)
     if df.empty:
