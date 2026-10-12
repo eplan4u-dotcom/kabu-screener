@@ -18,7 +18,7 @@ body_html = open("docs/summary.html", encoding="utf-8").read() if os.path.exists
 # ウォッチ欄（Secrets の WATCHLIST）。公開リポジトリなので、ファイルにもログにも残さずメールの中だけに入れる
 try:
     import watch_mail
-    w_text, w_html = watch_mail.build(os.environ.get("WATCHLIST", ""))
+    w_text, w_html = watch_mail.build(os.environ.get("WATCHLIST", ""), sheet=os.environ.get("WATCHLIST_SHEET", ""))
 except Exception as e:
     w_text, w_html = "", ""
     print(f"ウォッチ欄の作成に失敗（ウォッチ欄なしで送信）: {type(e).__name__}")

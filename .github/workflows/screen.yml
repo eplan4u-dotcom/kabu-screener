@@ -48,3 +48,4 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
           WATCHLIST: ${{ secrets.WATCHLIST }}
+          WATCHLIST_SHEET: ${{ secrets.WATCHLIST_SHEET }}
