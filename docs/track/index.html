@@ -11,7 +11,7 @@ th{font-size:12px;color:var(--mut)} td:first-child,th:first-child{text-align:lef
 .up{color:var(--up)} .dn{color:var(--dn)} .mut{color:var(--mut)} a{color:var(--acc)} a.nm{color:inherit}
 </style></head><body><main>
 <h1>スクリーナーの成績（フォワードテスト）</h1>
-<p class="note">更新 2026-10-13 05:31／記録 28件（2026-10-09〜2026-10-09）／ルール 第2版／<a href="../">結果ページへ</a>／<a href="replay.html">過去日の再現へ</a></p>
+<p class="note">更新 2026-10-13 07:44／記録 28件（2026-10-09〜2026-10-09）／ルール 第2版／<a href="../">結果ページへ</a>／<a href="replay.html">過去日の再現へ</a></p>
 
 <p class="note">実際の取引とは別に、抽出した銘柄を決まったルールで機械的に売買した場合の成績です。
 買い：A・Dは出てから5営業日以内にアラートを超えたら、その価格で買い（窓を開けたら始値）。B・C・別枠は翌営業日の始値。
@@ -24,6 +24,8 @@ th{font-size:12px;color:var(--mut)} td:first-child,th:first-child{text-align:lef
 「全体」は同じ日の全銘柄（売買代金3億円以上・株価200円以上）を翌日始値で買い、10日安値を損切りとした場合の成功率。「全体との差」がプラスなら、スクリーニングが効いています。
 「同業種」は銘柄ごとに同じ日・同じ業種（東証33業種）の成功率を基準にした値（対象が10銘柄未満の業種は全体で代用）。全体との差だけプラスなら業種選びが、同業種との差もプラスならチャートの形そのものが効いています。</p>
 <div class="wrap"><table><tr><th>リスト</th><th>件数</th><th>買えた</th><th>判定済み</th><th>成功率</th><th>全体</th><th>全体との差</th><th>同業種</th><th>同業種との差</th><th>損切りが先</th><th>5日内の最大上昇</th></tr><tr><td>A. ブレイク待ち</td><td>14</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>B. 当日ブレイク</td><td>1</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>C. 静かな連騰</td><td>1</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>D. 押し目3連陽</td><td>11</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>　25日線型</td><td>0</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>　50日線型</td><td>4</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>　75日線型</td><td>7</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr><tr><td>別枠. テーマ急騰</td><td>1</td><td>0</td><td>0</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr></table></div>
+
+
 
 <h2>初動の成功率（地合い急変日を除く）</h2>
 <p class="note">地合い急変日＝TOPIXがその日±2%以上、または直近5日で-5%以下の日に出た銘柄（下の一覧に⚡）。
