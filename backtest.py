@@ -24,8 +24,9 @@ P = dict(
     touch_above=1.0,    # 安値が線の何%上までなら「タッチ」とみなすか
     max_under_adr=1.5,  # 線の下への割り込みは、平均値動き(%)の何倍まで許すか（深いものは崩れとして除外）
     low_tol=0.3,        # 安値切り上げの許容（%）。前日安値をこの分だけ下回っても可（3本目は1本目より上が必須）
-    pre25=(25, 8, 0.7), # 25型：タッチ前の期間（何日前〜何日前）に終値が線の上にあった割合の下限
-    pre75=(40, 8, 0.8), # 75型：同じく75日線の上
+    pre25=(20, 5, 0.6), # 25型：タッチ前の期間（何日前〜何日前）に終値が線の上にあった割合の下限（今回の調整だけを見る）
+    pre50=(30, 5, 0.8), # 50型：同じく50日線の上
+    pre75=(40, 5, 0.8), # 75型：同じく75日線の上
     bundle=3.0,         # 25日線と75日線の差がこの%以内なら「束」。束のときは下側の線を基準に事前の位置を測る
     ext_adr=3.0,        # 3日上昇が平均値動きの何倍を超えたら「走りすぎ」印
     alert_days=5,       # アラート（3本目の高値）に何日以内に届けば「買えた」とするか
@@ -79,7 +80,7 @@ def calc(d):
     o, h, l, c, v = (d[k].astype(float).values for k in ["Open", "High", "Low", "Close", "Volume"])
     s = pd.Series(c)
     return dict(o=o, h=h, l=l, c=c, v=v,
-                ma25=s.rolling(25).mean().values, ma75=s.rolling(75).mean().values,
+                ma25=s.rolling(25).mean().values, ma50=s.rolling(50).mean().values, ma75=s.rolling(75).mean().values,
                 adr=pd.Series((h / l - 1) * 100).rolling(20).mean().values,
                 turn=pd.Series(c * v).rolling(20).mean().values,
                 vol50=pd.Series(v).rolling(50).mean().shift(1).values,
@@ -111,7 +112,7 @@ def judge(x, t):
     w0, w1 = t - 2 - P["touch_win"], t - 2
     a = adr[t]
     best = None
-    for line, name in ((ma75, "75"), (ma25, "25")):
+    for line, name in ((ma75, "75"), (x["ma50"], "50"), (ma25, "25")):
         for i in range(w0, w1 + 1):
             if line[i] * (1 - a * P["max_under_adr"] / 100) <= l[i] <= line[i] * (1 + P["touch_above"] / 100):
                 best = (name, i)
@@ -124,15 +125,15 @@ def judge(x, t):
         r["fail"] = "線に届かず" if deepest > P["touch_above"] / 100 else "割り込み深すぎ"
     else:
         name, ti = best
-        b, e, ratio = P["pre75"] if name == "75" else P["pre25"]
-        if name == "75":
-            ref = ma75
+        b, e, ratio = P["pre" + name]
+        if name != "25":
+            ref = ma75 if name == "75" else x["ma50"]
         else:
             bundled = abs(ma25[ti] / ma75[ti] - 1) * 100 <= P["bundle"]
             ref = np.minimum(ma25, ma75) * 0.99 if bundled else ma25
         above = float(np.mean(c[t - b:t - e] > ref[t - b:t - e]))
         r["事前に線の上"] = above >= ratio
-        r["25上向"] = name == "75" or ma25[t] >= ma25[t - 5] * 0.995
+        r["25上向"] = name != "25" or ma25[t] >= ma25[t - 5] * 0.995
         r["touch_i"], r["above_ratio"] = ti, above
 
     keys = ["3陽", "安値切上", "初成立", "流動性", "25>75", "75上向", "タッチ", "事前に線の上", "25上向"]
@@ -149,7 +150,7 @@ def judge(x, t):
 def features(x, t, r):
     o, h, l, c, v = x["o"], x["h"], x["l"], x["c"], x["v"]
     ti = r["touch_i"]
-    line = x["ma75"] if r["タッチ"] == "75" else x["ma25"]
+    line = x["ma" + r["タッチ"]]
     stop = float(min(l[ti:t + 1]))
     a = x["adr"][t]
     g3 = (c[t] / c[t - 3] - 1) * 100
@@ -210,12 +211,26 @@ def candles_svg(x, t, ti=None, before=45, after=15):
 FILTERS = {
     "V": [("なし", lambda d: d.index == d.index), ("押し目出来高0.8倍未満", lambda d: d.vol_dip < 0.8),
           ("押し目出来高0.65倍未満", lambda d: d.vol_dip < 0.65)],
-    "R": [("なし", None), ("75型は25日線奪回済のみ", lambda d: (d["type"] == "25") | d.reclaim25)],
+    "R": [("なし", None), ("50・75型は25日線奪回済のみ", lambda d: (d["type"] == "25") | d.reclaim25)],
     "Q": [("なし", None), ("3連陽の出来高1.5倍未満", lambda d: d.vol_3 < 1.5)],
     "S": [("なし", None), ("60日騰落が市場中央値より上", lambda d: d.rs60 > 0)],
     "H": [("なし", None), ("1年高値まで20%以内", lambda d: d.room1y <= 20)],
     "C": [("なし", None), ("一斉発生日（30件超）を除く", lambda d: d.day_n <= 30)],
 }
+
+
+# 2回目の検証で選んだ厳選条件（前半・後半とも超過プラス、1日2〜3件）
+CHOSEN = [("押し目の出来高が平常の0.8倍未満", lambda d: d.vol_dip < 0.8),
+          ("3連陽の出来高が平常の1.5倍未満", lambda d: d.vol_3 < 1.5),
+          ("60日騰落が市場中央値より上", lambda d: d.rs60 > 0),
+          ("1年高値まで20%以内", lambda d: d.room1y <= 20)]
+
+
+def chosen_mask(d):
+    m = pd.Series(True, index=d.index)
+    for _, fn in CHOSEN:
+        m &= fn(d)
+    return m
 
 
 def evaluate(df):
@@ -317,6 +332,10 @@ def main():
                 if r.get("3陽"):
                     found = True
                     f = features(x, t, r) if r["ok"] else {}
+                    if f:
+                        f["rs60"] = f["ret60"] - day60.get(day, np.nan)
+                        fd = pd.DataFrame([f])
+                        f["chosen_fail"] = [nm for nm, fn in CHOSEN if not bool(fn(fd).iloc[0])]
                     case_rows.append(dict(code=code, name=nm, date=day, t=t, ok=r["ok"], detail=r, f=f,
                                           res=("成立（" + r["タッチ"] + "型）") if r["ok"] else "不成立：" + r.get("fail", "")))
         if not found:
@@ -355,7 +374,9 @@ def write(df, grid, cases, X, mac):
             extra = f'<div class="sub">タッチ {x["dates"][det["touch_i"]]}・事前に線の上 {det.get("above_ratio", 0) * 100:.0f}%</div>'
         if f:
             extra += (f'<div class="sub">押し目出来高 {f["vol_dip"]:.2f}倍・3連陽出来高 {f["vol_3"]:.2f}倍・'
-                      f'1年高値まで {f["room1y"]:.0f}%・20日後 {pct(f["ret20"])}</div>')
+                      f'60日の相対強さ {pct(f["rs60"], 0)}・1年高値まで {f["room1y"]:.0f}%・20日後 {pct(f["ret20"])}</div>')
+            cf = f.get("chosen_fail", [])
+            extra += (f'<div class="{"ok" if not cf else "ng"}">厳選条件: ' + ("通過" if not cf else "落ちる（" + "・".join(cf) + "）") + "</div>")
         crow.append(f'<tr><td>{r["code"]} {E(r["name"])}</td><td>{r["date"]}</td>'
                     f'<td class="{"ok" if r.get("ok") else "ng"}">{E(r["res"])}{extra}</td><td>{svg}</td></tr>')
 
@@ -365,12 +386,27 @@ def write(df, grid, cases, X, mac):
                    for d, v in per.items())
 
     rows = []
-    for _, r in df.sort_values("date", ascending=False).head(60).iterrows():
+    ch = df[chosen_mask(df)]
+    for _, r in ch.sort_values("date", ascending=False).head(60).iterrows():
         rows.append(
             f'<tr><td><a href="{S.tv(r.code)}" target="_blank">{r.code}</a> {E(r["name"])}</td><td>{r.date}</td>'
             f'<td>{r["type"]}型</td><td>{r.vol_dip:.2f}倍</td><td>{pct(r.rs60, 0)}</td><td>{r.room1y:.0f}%</td>'
             f'<td>{r.risk:.1f}%</td><td>{pct(r.ret20)}</td><td>{candles_svg(X[r.code], int(r.t), int(r.ti))}</td></tr>')
 
+    def summ(g, nm):
+        g2 = g[g.ex20.notna()]
+        if len(g2) < 5:
+            return f"<tr><td>{E(nm)}</td><td>{len(g)}</td>" + "<td>-</td>" * 7 + "</tr>"
+        mid = df.date.sort_values().iloc[len(df) // 2]
+        h1, h2 = g2[g2.date < mid].ex20.mean(), g2[g2.date >= mid].ex20.mean()
+        return (f"<tr><td>{E(nm)}</td><td>{len(g):,}</td><td><b>{pct(g2.ex20.mean())}</b></td><td>{pct(g2.ret20.mean())}</td>"
+                f"<td>{(g2.ex20 > 0).mean() * 100:.0f}%</td><td>{pct(h1)}</td><td>{pct(h2)}</td>"
+                f"<td>{g2.stop20.dropna().astype(bool).mean() * 100:.0f}%</td><td>{pct(g2.a_ex20.mean())}</td></tr>")
+    chs = [summ(ch, "厳選条件 全体")] + [summ(ch[ch["type"] == k], f"厳選条件 {k}型") for k in ("25", "50", "75")]
+    chs += [summ(df, "基本条件のみ 全体")] + [summ(df[df["type"] == k], f"基本条件のみ {k}型") for k in ("25", "50", "75")]
+    chper = ch.groupby("date").size().reindex(per.index, fill_value=0)
+    ch_txt = (f"厳選条件: {len(ch):,}件・1日平均 {chper.mean():.1f}件・中央値 {chper.median():.0f}件・最多 {chper.max()}件・"
+              f"0件の日 {int((chper == 0).sum())}日／{len(chper)}日")
     p = ", ".join(f"{k}={v}" for k, v in P.items())
     page = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>D 検証</title>
@@ -398,14 +434,18 @@ a{{color:#5b7fd6}}
 <p>{len(df):,}件・1日平均 {len(df) / len(per):.1f}件（最多 {per.max()}件 {per.idxmax()}）</p>
 <div style="display:flex;align-items:flex-end;gap:1px;height:80px;border-bottom:1px solid var(--line)">{bars}</div>
 
-<h2>3. 追加条件を1つだけ足した場合</h2>
+<h2>3. 厳選条件（{E("＋".join(n for n, _ in CHOSEN))}）</h2>
+<p>{E(ch_txt)}</p>
+<div class="wrap"><table><tr><th>区分</th><th>件数</th><th>20日後 超過</th><th>20日後 騰落</th><th>勝率</th><th>前半</th><th>後半</th><th>損切り到達</th><th>アラート買い 超過</th></tr>{"".join(chs)}</table></div>
+
+<h2>4. 追加条件を1つだけ足した場合</h2>
 <div class="wrap"><table>{head}{"".join(grow(r) for r in single.itertuples())}</table></div>
 
-<h2>4. 組み合わせ（前半・後半とも超過プラス、100件以上、確からしさ順）</h2>
+<h2>5. 組み合わせ（前半・後半とも超過プラス、100件以上、確からしさ順）</h2>
 <div class="wrap"><table>{head}{"".join(grow(r) for r in top.itertuples())}</table></div>
 <p class="note">全組み合わせ: <a href="grid.csv">grid.csv</a>／全シグナル: <a href="signals.csv">signals.csv</a></p>
 
-<h2>5. 直近のシグナル（基本条件のみ・新しい順60件）</h2>
+<h2>6. 厳選条件のシグナル（新しい順60件）</h2>
 <div class="wrap"><table><tr><th>銘柄</th><th>3本目</th><th>型</th><th>押し目出来高</th><th>60日の相対強さ</th><th>1年高値まで</th><th>損切り幅</th><th>20日後</th><th>チャート</th></tr>{"".join(rows)}</table></div>
 </main></body></html>"""
     with open(os.path.join(OUT, "index.html"), "w", encoding="utf-8") as f:
