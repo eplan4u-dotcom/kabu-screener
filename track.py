@@ -31,6 +31,7 @@ CACHE = os.path.join(BASE, "cache")
 RULE_VERSION = 2
 FIRST_DAYS = 5      # 初動の判定：買ってから何営業日以内に
 FIRST_ADR = 2.0     # 初動の判定：買値＋平均値動き（20日平均の高値/安値の幅%）の何日分に届けば成功
+SECTOR_MIN = 10     # 同業種の基準：その日の対象銘柄がこれ未満の業種は、全体の成功率で代用
 ALERT_DAYS = 5      # アラート型（A・D）の待ち日数
 HOLD = 20           # 保有日数（営業日）
 BENCH = "1306"      # TOPIX連動ETF
@@ -149,9 +150,15 @@ def base_rates(dates):
         return {}
     with open(cpath, "rb") as f:
         allpx = pickle.load(f)
+    try:
+        uni = S.load_universe()
+        secmap = dict(zip(uni.code, uni.sector))
+    except (Exception, SystemExit):      # 銘柄一覧が取れなくても、全体の基準だけで続ける
+        secmap = {}
     want = set(dates)
     acc = {d: [0, 0] for d in want}
-    for d in allpx.values():
+    sacc = {}
+    for code, d in allpx.items():
         if len(d) < 30:
             continue
         o, h, l, c, v = (d[k].astype(float).values for k in ("Open", "High", "Low", "Close", "Volume"))
@@ -169,7 +176,14 @@ def base_rates(dates):
                 continue
             acc[day][0] += res == "成功"
             acc[day][1] += 1
-    return {d: (a / b * 100, b) for d, (a, b) in acc.items() if b}
+            sec = secmap.get(code)
+            if sec:
+                x = sacc.setdefault((day, sec), [0, 0])
+                x[0] += res == "成功"
+                x[1] += 1
+    allr = {d: (a / b * 100, b) for d, (a, b) in acc.items() if b}
+    secr = {k: (a / b * 100, b) for k, (a, b) in sacc.items() if b >= SECTOR_MIN}
+    return dict(all=allr, sec=secr)
 
 
 def evaluate(sig, px):
@@ -279,15 +293,21 @@ def first_rows(ev, base):
         cells = [E(label), f"{len(g):,}", f"{len(bought):,}", f"{len(judged):,}"]
         if len(judged):
             rate = (judged["first"] == "成功").mean() * 100
-            b = [base[d][0] for d in judged.date if d in base]
+            ball, bsec = base.get("all", {}), base.get("sec", {})
+            b = [ball[d][0] for d in judged.date if d in ball]
+            bs = [bsec.get((d, sc), ball.get(d, (np.nan,)))[0] for d, sc in zip(judged.date, judged.sector) if d in ball]
             brate = np.mean(b) if b else np.nan
-            diff = rate - brate if b else np.nan
-            col = "up" if not np.isnan(diff) and diff > 0 else "dn"
-            cells += [f"<b>{rate:.0f}%</b>", "-" if np.isnan(brate) else f"{brate:.0f}%",
-                      f'<span class="{col}">{"-" if np.isnan(diff) else f"{diff:+.0f}pt"}</span>',
+            srate = np.nanmean(bs) if bs else np.nan
+
+            def dcell(x):
+                if np.isnan(x):
+                    return "-"
+                return f'<span class="{"up" if x > 0 else "dn"}">{x:+.0f}pt</span>'
+            cells += [f"<b>{rate:.0f}%</b>", "-" if np.isnan(brate) else f"{brate:.0f}%", dcell(rate - brate),
+                      "-" if np.isnan(srate) else f"{srate:.0f}%", dcell(rate - srate),
                       f'{(judged["first"] == "失敗（損切り）").mean() * 100:.0f}%', pct(judged.max5.mean())]
         else:
-            cells += ["-"] * 5
+            cells += ["-"] * 7
         rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
     return "".join(rows)
 
@@ -326,7 +346,8 @@ def write(ev, base):
     head = ("<tr><th>リスト</th><th>件数</th><th>決済済み</th><th>アラート到達</th><th>勝率</th><th>平均損益</th>"
             "<th>TOPIX比</th><th>損切り率</th><th>最大上昇</th><th>終値20日後 TOPIX比</th><th>（件数）</th></tr>")
     normal = ev[~ev.shock]
-    fhead = ("<tr><th>リスト</th><th>件数</th><th>買えた</th><th>判定済み</th><th>成功率</th><th>全体</th><th>差</th>"
+    fhead = ("<tr><th>リスト</th><th>件数</th><th>買えた</th><th>判定済み</th><th>成功率</th><th>全体</th><th>全体との差</th>"
+             "<th>同業種</th><th>同業種との差</th>"
              "<th>損切りが先</th><th>5日内の最大上昇</th></tr>")
     shock_days = sorted(ev[ev.shock].date.unique())
 
@@ -378,7 +399,8 @@ th{{font-size:12px;color:var(--mut)}} td:first-child,th:first-child{{text-align:
 
 <h2>初動の成功率</h2>
 <p class="note">成功＝買ってから{FIRST_DAYS}営業日以内に、高値が「買値＋平均値動きの{FIRST_ADR:.0f}日分」に届き、その前に損切り目安を割っていない（同じ日に両方起きたら失敗）。
-「全体」は同じ日の全銘柄（売買代金3億円以上・株価200円以上）を翌日始値で買い、10日安値を損切りとした場合の成功率。「差」がプラスなら、スクリーニングが効いています。</p>
+「全体」は同じ日の全銘柄（売買代金3億円以上・株価200円以上）を翌日始値で買い、10日安値を損切りとした場合の成功率。「全体との差」がプラスなら、スクリーニングが効いています。
+「同業種」は銘柄ごとに同じ日・同じ業種（東証33業種）の成功率を基準にした値（対象が{SECTOR_MIN}銘柄未満の業種は全体で代用）。全体との差だけプラスなら業種選びが、同業種との差もプラスならチャートの形そのものが効いています。</p>
 <div class="wrap"><table>{fhead}{first_rows(ev, base)}</table></div>
 
 <h2>初動の成功率（地合い急変日を除く）</h2>
