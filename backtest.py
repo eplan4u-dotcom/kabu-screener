@@ -352,7 +352,9 @@ def main():
                 sigs.append(rec)
     df = pd.DataFrame(sigs)
     # 同じ日の全銘柄（流動性条件内）の平均との差で評価する（地合いの影響を除く）
-    day20 = {k: np.mean(v[0]) if v[0] else np.nan for k, v in base.items()}
+    # 分割の処理ミスなどの異常値（20日で-80%未満・+300%超）は除き、日ごとの基準は中央値にする
+    day20 = {k: np.median([r for r in v[0] if -80 <= r <= 300]) if v[0] else np.nan for k, v in base.items()}
+    df = df[df.ret20.isna() | df.ret20.between(-80, 300)]
     day60 = {k: np.median(v[1]) for k, v in base.items()}
     df["ex20"] = df.ret20 - df.date.map(day20)
     df["a_ex20"] = df.get("a_ret20", np.nan) - df.date.map(day20)
