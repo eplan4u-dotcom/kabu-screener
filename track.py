@@ -9,6 +9,9 @@
    売り : 損切り目安（A・B・C・別枠＝10日安値、D＝タッチ〜3本目の最安値）を割ったら損切り
           （窓を開けて下回ったら始値）。割らなければ、買った日から20営業日後の終値
    比較 : 同じ期間の TOPIX（1306 TOPIX連動ETF）の騰落との差＝超過
+   初動 : 買ってから5営業日以内に、高値が「買値＋平均値動きの2日分」に届き、その前に損切り目安を割っていなければ成功
+          （同じ日に両方起きたら失敗扱い）。基準として、同じ日の全銘柄（売買代金・株価の条件内）を
+          翌日始値で買い・10日安値を損切りとした場合の成功率も計算する
 3. docs/track/index.html に成績ページを出す
 
 ルールを途中で変えると比較できなくなるため、変える場合は RULE_VERSION を上げ、版ごとに集計する。
@@ -25,7 +28,9 @@ LOG = os.environ.get("TRACK_LOG") or os.path.join(BASE, "data", "signals", "log.
 OUT = os.path.join(DOCS, "track")
 CACHE = os.path.join(BASE, "cache")
 
-RULE_VERSION = 1
+RULE_VERSION = 2
+FIRST_DAYS = 5      # 初動の判定：買ってから何営業日以内に
+FIRST_ADR = 2.0     # 初動の判定：買値＋平均値動き（20日平均の高値/安値の幅%）の何日分に届けば成功
 ALERT_DAYS = 5      # アラート型（A・D）の待ち日数
 HOLD = 20           # 保有日数（営業日）
 BENCH = "1306"      # TOPIX連動ETF
@@ -123,6 +128,50 @@ def prices(codes):
 
 
 # ---------- 3. 評価 ----------
+def first_move(h, l, c, entry_i, entry, stop, adr, n):
+    """初動の判定。戻り値: (結果, 5日以内の最大上昇%, 目標価格)"""
+    target = entry * (1 + FIRST_ADR * adr / 100)
+    end = entry_i + FIRST_DAYS
+    mx = (max(h[entry_i:min(end, n)]) / entry - 1) * 100
+    for j in range(entry_i, min(end, n)):
+        if not np.isnan(stop) and l[j] < stop:
+            return "失敗（損切り）", mx, target
+        if h[j] >= target:
+            return "成功", mx, target
+    return ("失敗（届かず）" if end <= n else "判定待ち"), mx, target
+
+
+def base_rates(dates):
+    """同じ日の全銘柄の初動成功率（翌日始値買い・10日安値損切り）。スクリーナーの株価キャッシュを使う"""
+    import screener as S
+    cpath = os.path.join(CACHE, f"prices_{dt.date.today().isoformat()}.pkl")
+    if not os.path.exists(cpath):
+        return {}
+    with open(cpath, "rb") as f:
+        allpx = pickle.load(f)
+    want = set(dates)
+    acc = {d: [0, 0] for d in want}
+    for d in allpx.values():
+        if len(d) < 30:
+            continue
+        o, h, l, c, v = (d[k].astype(float).values for k in ("Open", "High", "Low", "Close", "Volume"))
+        n = len(c)
+        pos = {x.date().isoformat(): i for i, x in enumerate(d.index)}
+        for day in want:
+            t = pos.get(day)
+            if t is None or t < 20 or t + 1 >= n:
+                continue
+            if np.mean(c[t - 19:t + 1] * v[t - 19:t + 1]) < S.CFG["min_turnover"] or c[t] < S.CFG["min_price"]:
+                continue
+            res, _, _ = first_move(h, l, c, t + 1, o[t + 1], l[t - 9:t + 1].min(),
+                                   np.mean((h[t - 19:t + 1] / l[t - 19:t + 1] - 1) * 100), n)
+            if res == "判定待ち":
+                continue
+            acc[day][0] += res == "成功"
+            acc[day][1] += 1
+    return {d: (a / b * 100, b) for d, (a, b) in acc.items() if b}
+
+
 def evaluate(sig, px):
     bench = px.get(BENCH)
     bc = bench.Close if bench is not None else None
@@ -168,6 +217,9 @@ def evaluate(sig, px):
                 continue
             entry_i, entry = t + 1, o[t + 1]
         r["entry_date"], r["entry"] = idx[entry_i], entry
+        adr = float(np.mean((h[max(0, t - 19):t + 1] / l[max(0, t - 19):t + 1] - 1) * 100))
+        r["adr"] = adr
+        r["first"], r["max5"], r["target"] = first_move(h, l, c, entry_i, entry, stop, adr, n)
         # 売り
         exit_i = exit_p = None
         reason = None
@@ -211,6 +263,35 @@ def pct(x, nd=1):
     return "-" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:+.{nd}f}%"
 
 
+def first_rows(ev, base):
+    E = html.escape
+    groups = []
+    for key, (_, label, rule) in LISTS.items():
+        g = ev[ev.list == key]
+        groups.append((label, g))
+        if key == "D":
+            for tp in ("25", "50", "75"):
+                groups.append((f"　{tp}日線型", g[g.dtype.astype(str) == tp]))
+    rows = []
+    for label, g in groups:
+        bought = g[g.get("entry", pd.Series(index=g.index, dtype=float)).notna()] if "entry" in g else g.iloc[0:0]
+        judged = bought[bought["first"].isin(["成功", "失敗（損切り）", "失敗（届かず）"])] if len(bought) else bought
+        cells = [E(label), f"{len(g):,}", f"{len(bought):,}", f"{len(judged):,}"]
+        if len(judged):
+            rate = (judged["first"] == "成功").mean() * 100
+            b = [base[d][0] for d in judged.date if d in base]
+            brate = np.mean(b) if b else np.nan
+            diff = rate - brate if b else np.nan
+            col = "up" if not np.isnan(diff) and diff > 0 else "dn"
+            cells += [f"<b>{rate:.0f}%</b>", "-" if np.isnan(brate) else f"{brate:.0f}%",
+                      f'<span class="{col}">{"-" if np.isnan(diff) else f"{diff:+.0f}pt"}</span>',
+                      f'{(judged["first"] == "失敗（損切り）").mean() * 100:.0f}%', pct(judged.max5.mean())]
+        else:
+            cells += ["-"] * 5
+        rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+    return "".join(rows)
+
+
 def summary_rows(ev):
     E = html.escape
     groups = []
@@ -238,19 +319,22 @@ def summary_rows(ev):
     return "".join(rows)
 
 
-def write(ev):
+def write(ev, base):
     os.makedirs(OUT, exist_ok=True)
     E = html.escape
     ev.to_csv(os.path.join(OUT, "track.csv"), index=False, encoding="utf-8-sig")
     head = ("<tr><th>リスト</th><th>件数</th><th>決済済み</th><th>アラート到達</th><th>勝率</th><th>平均損益</th>"
             "<th>TOPIX比</th><th>損切り率</th><th>最大上昇</th><th>終値20日後 TOPIX比</th><th>（件数）</th></tr>")
     normal = ev[~ev.shock]
+    fhead = ("<tr><th>リスト</th><th>件数</th><th>買えた</th><th>判定済み</th><th>成功率</th><th>全体</th><th>差</th>"
+             "<th>損切りが先</th><th>5日内の最大上昇</th></tr>")
     shock_days = sorted(ev[ev.shock].date.unique())
 
     rec = ev.sort_values(["date", "list"], ascending=[False, True])
     recent_days = sorted(ev.date.unique())[-30:]
     rec = rec[rec.date.isin(recent_days)]
     cls = {"損切り": "dn", "20日満了": "", "保有中": "up", "アラート待ち": "mut", "未到達": "mut", "翌日待ち": "mut"}
+    fcls = {"成功": "up", "失敗（損切り）": "dn", "失敗（届かず）": "", "判定待ち": "mut"}
     rows = []
     for _, r in rec.iterrows():
         tv = f"https://jp.tradingview.com/chart/?symbol=TSE:{r.code}"
@@ -258,14 +342,18 @@ def write(ev):
         entry = (f'{r.entry:,.0f}<div class="sub">{str(r.entry_date)[5:]}</div>'
                  if pd.notna(r.get("entry")) else "-")
         pnl = r.get("pnl")
+        tgt = "-" if pd.isna(r.get("target")) else f"{r.get('target'):,.0f}"
         rows.append(
             f'<tr><td><a class="nm" href="https://shikiho.toyokeizai.net/stocks/{r.code}" target="_blank">{E(str(r["name"]))}</a>'
             f'<div class="sub"><a class="nm" href="{tv}" target="_blank">{r.code}</a></div></td>'
             f'<td>{r.date[5:]}{" ⚡" if r.shock else ""}</td><td>{r.list}{(" " + dtp) if dtp else ""}</td>'
             f'<td>{r.close:,.0f}</td><td>{"-" if pd.isna(r.alert) else f"{r.alert:,.0f}"}</td>'
             f'<td>{"-" if pd.isna(r.stop) else f"{r.stop:,.0f}"}</td><td>{entry}</td>'
+            f'<td>{tgt}</td>'
+            f'<td class="{fcls.get(r.get("first"), "mut")}">{E(str(r.get("first") if pd.notna(r.get("first")) else "-"))}</td>'
+            f'<td>{pct(r.get("max5"))}</td>'
             f'<td class="{cls.get(r.status, "")}">{E(str(r.status))}</td>'
-            f'<td class="{"up" if pd.notna(pnl) and pnl >= 0 else "dn"}">{pct(pnl)}</td><td>{pct(r.get("maxup"))}</td>'
+            f'<td class="{"up" if pd.notna(pnl) and pnl >= 0 else "dn"}">{pct(pnl)}</td>'
             f'<td>{"-" if pd.isna(r.get("days")) else int(r.get("days"))}日</td></tr>')
 
     page = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
@@ -288,16 +376,22 @@ th{{font-size:12px;color:var(--mut)}} td:first-child,th:first-child{{text-align:
 「TOPIX比」は同じ期間のTOPIX（1306）の騰落を引いた値で、地合いの影響を除いた実力です。
 「終値20日後」はルールを使わず、抽出日の終値から20営業日後までの騰落のTOPIX比です。判断の目安は、リストごとに50〜100件の決済がたまってからです。</p>
 
-<h2>成績（全期間）</h2>
-<div class="wrap"><table>{head}{summary_rows(ev)}</table></div>
+<h2>初動の成功率</h2>
+<p class="note">成功＝買ってから{FIRST_DAYS}営業日以内に、高値が「買値＋平均値動きの{FIRST_ADR:.0f}日分」に届き、その前に損切り目安を割っていない（同じ日に両方起きたら失敗）。
+「全体」は同じ日の全銘柄（売買代金3億円以上・株価200円以上）を翌日始値で買い、10日安値を損切りとした場合の成功率。「差」がプラスなら、スクリーニングが効いています。</p>
+<div class="wrap"><table>{fhead}{first_rows(ev, base)}</table></div>
 
-<h2>成績（地合い急変日を除く）</h2>
+<h2>初動の成功率（地合い急変日を除く）</h2>
 <p class="note">地合い急変日＝TOPIXがその日±{SHOCK_DAY:.0f}%以上、または直近5日で{SHOCK_5D:.0f}%以下の日に出た銘柄（下の一覧に⚡）。
 大きな下落や一斉反発のような外的要因を除いた、ふだんの成績です。該当日: {E("、".join(d[5:] for d in shock_days)) or "なし"}</p>
-<div class="wrap"><table>{head}{summary_rows(normal)}</table></div>
+<div class="wrap"><table>{fhead}{first_rows(normal, base)}</table></div>
 
 <h2>直近30営業日の銘柄ごとの経過</h2>
-<div class="wrap"><table><tr><th>銘柄</th><th>抽出日</th><th>リスト</th><th>抽出時の終値</th><th>アラート</th><th>損切り目安</th><th>買値</th><th>状態</th><th>損益</th><th>最大上昇</th><th>経過</th></tr>{"".join(rows)}</table></div>
+<div class="wrap"><table><tr><th>銘柄</th><th>抽出日</th><th>リスト</th><th>抽出時の終値</th><th>アラート</th><th>損切り目安</th><th>買値</th><th>初動の目標</th><th>初動</th><th>5日内の最大上昇</th><th>20日の状態</th><th>20日の損益</th><th>経過</th></tr>{"".join(rows)}</table></div>
+
+<h2>参考：20営業日保有の成績</h2>
+<p class="note">損切り目安を割らなければ20営業日後の終値で決済した場合。初動のあとの押しも含むので、手法の評価は上の初動の成功率を優先します。</p>
+<div class="wrap"><table>{head}{summary_rows(ev)}</table></div>
 <p class="note">全件: <a href="track.csv">track.csv</a>／記録: data/signals/log.csv</p>
 </main></body></html>"""
     with open(os.path.join(OUT, "index.html"), "w", encoding="utf-8") as f:
@@ -314,7 +408,8 @@ def main():
     sig["dtype"] = sig.dtype.fillna("").astype(str).str.replace(".0", "", regex=False)
     px = prices(sorted(set(sig.code)) + [BENCH])
     ev = evaluate(sig, px)
-    write(ev)
+    base = base_rates(sorted(set(ev.date)))
+    write(ev, base)
     log(f"成績ページを更新: {len(ev):,}件")
 
 
