@@ -26,6 +26,11 @@ jobs:
       - run: python screener.py --no-open
         env:
           SCREENER_OUT: docs
+      - name: track
+        run: python track.py
+        continue-on-error: true
+        env:
+          SCREENER_OUT: docs
       - name: publish
         run: |
           cp docs/latest.html docs/index.html

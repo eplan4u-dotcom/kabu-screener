@@ -490,6 +490,7 @@ a.spark{{display:inline-block;padding:4px 0}} a.spark svg{{display:block}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
+<p class="note"><a href="track/">抽出結果のその後（成績ページ）</a></p>
 <p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。{html.escape(margin_note())}</p>
 <div class="tabs"><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#d">D 押し目3連陽 {len(D)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
 
@@ -570,7 +571,8 @@ def write_summary(df, A, B, C, T, D, date):
         L += ["", f"■ 別枠. テーマ急騰 {len(T)}銘柄（手法の対象外）"]
         for _, r in T.iterrows():
             L.append(f"・{name(r)}  終値{r.close:,.0f}（{r.chg:+.1f}%）")
-    L += ["", margin_note(), "企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード"]
+    L += ["", margin_note(), "企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード",
+          f"抽出結果のその後（成績ページ）: {PAGE_URL}track/"]
     with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
     write_summary_html(df, A, B, C, T, D, date)
@@ -628,6 +630,7 @@ def write_summary_html(df, A, B, C, T, D, date):
         for _, r in T.iterrows():
             parts.append(item(r, f'終値 {r.close:,.0f} <span style="color:#d1343a;">{r.chg:+.1f}%</span>'))
     parts.append(f'<div style="font-size:12px;color:#999;margin-top:24px;">{E(margin_note())}</div>')
+    parts.append(f'<div style="font-size:13px;margin-top:10px;"><a href="{PAGE_URL}track/" style="color:#1a56db;">抽出結果のその後（成績ページ）</a></div>')
     parts.append('<div style="font-size:12px;color:#999;margin-top:6px;">銘柄名をタップすると会社四季報の企業ページ、コードをタップするとTradingViewのチャートが開きます。</div></div>')
     with open(os.path.join(OUT, "summary.html"), "w", encoding="utf-8") as f:
         f.write("".join(parts))
