@@ -189,7 +189,7 @@ def base_rates(dates):
     acc = {d: [0, 0] for d in want}
     sacc = {}
     for code, d in allpx.items():
-        if len(d) < 30:
+        if len(d) < 30 or code == BENCH:
             continue
         d = adjust_splits(d)
         o, h, l, c, v = (d[k].astype(float).values for k in ("Open", "High", "Low", "Close", "Volume"))

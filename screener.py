@@ -43,6 +43,8 @@ CFG = dict(
 
 
 MARGIN, MARGIN_INFO = {}, {}
+MARKET = {}   # 地合い（TOPIX連動ETF 1306 の25日線・20日騰落）
+BENCH = "1306"
 ALL = []   # 売買代金の条件に関係なく、分析できた全銘柄（ウォッチリスト用の all.json に使う）
 
 
@@ -194,7 +196,7 @@ def analyze(d):
         pass
 
     return dict(
-        **dsig, ret60=(c[-1] / c[-61] - 1) * 100,
+        **dsig, ret60=(c[-1] / c[-61] - 1) * 100, ret20=(c[-1] / c[-21] - 1) * 100,
         close=close, chg=(c[-1] / c[-2] - 1) * 100, turnover20=turnover20, adr=adr, adr_yen=close * adr / 100,
         ma5=ma5[-1], ma25=ma25[-1], ma50=ma50[-1], ma75=ma75[-1],
         ma25_up=ma25[-1] > ma25[-6], ma50_up=ma50[-1] >= ma50[-11] * 0.99,   # 50日線が下向きでない
@@ -206,6 +208,41 @@ def analyze(d):
         spark=[round(x, 2) for x in c[-60:]],
         date=str(d.index[-1].date()),
     )
+
+
+def market(prices):
+    """地合い：TOPIX連動ETF（1306）の終値と25日線・直近20日の騰落"""
+    MARKET.clear()
+    d = prices.get(BENCH)
+    if d is None or len(d) < 30:
+        return
+    import track
+    d = track.adjust_splits(d)
+    c = d.Close.astype(float)
+    ma25 = float(c.iloc[-25:].mean())
+    MARKET.update(date=str(d.index[-1].date()), close=float(c.iloc[-1]), ma25=ma25,
+                  above25=bool(c.iloc[-1] > ma25), r20=float((c.iloc[-1] / c.iloc[-21] - 1) * 100))
+
+
+def market_text():
+    """地合いの一行と、A への注意（2025/10〜2026/10 の再現による）"""
+    if not MARKET:
+        return "", ""
+    pos = "25日線の上" if MARKET["above25"] else "25日線の下"
+    mark = "○" if MARKET["above25"] else "×"
+    sweet = "（過去1年で A〜D とも最も成績が良かった帯）" if 3 <= MARKET["r20"] <= 6 else ""
+    line = f"地合い{mark}：TOPIX（1306）は{pos}、直近20日 {MARKET['r20']:+.1f}%{sweet}"
+    a_warn = "" if MARKET["above25"] else \
+        "今日は地合い×（TOPIXが25日線の下）。過去1年の再現では、この地合いの A は全体を下回った（成功率15%）。"
+    return line, a_warn
+
+
+def sec_txt(r):
+    if not _num(r.get("sec_rank")):
+        return "-"
+    rk = int(r.sec_rank)
+    cls = ' class="up"' if rk <= max(1, round(r.sec_n * 0.2)) else ""
+    return f'<span{cls}>{rk}位</span><div class="sub">/{int(r.sec_n)}業種</div>'
 
 
 def screen(universe, prices):
@@ -253,9 +290,18 @@ def screen(universe, prices):
            & (df.dev25 <= CFG["c_max_dev25"])].copy()
     C = C.sort_values(["streak", "turnover20"], ascending=[False, False])
 
+    # 業種の強さ：対象銘柄の20日騰落の業種中央値の順位（1＝最強。3銘柄未満の業種は順位なし）
+    g = df.groupby("sector").ret20.agg(["median", "count"])
+    g = g[g["count"] >= 3]
+    rank = g["median"].rank(ascending=False, method="min")
+    df["sec_rank"] = df.sector.map(rank)
+    df["sec_n"] = len(g)
+    A["sec_rank"], C["sec_rank"] = df.sec_rank[A.index], df.sec_rank[C.index]
+    A["sec_n"] = C["sec_n"] = len(g)
+
     # D. 押し目からの3連陽（25・50・75日線）
     df["rs60"] = df.ret60 - df.ret60.median()           # 60日騰落の、市場（対象銘柄）の中央値との差
-    D = df[df.d_ok == True].copy()
+    D = df[df.d_ok == True].copy()   # sec_rank も引き継ぐ
     if len(D):
         view = pd.DataFrame({"type": D.d_type, "reclaim25": D.d_reclaim25.astype(bool), "vol_3": D.d_vol_3,
                              "rs60": D.rs60, "room1y": D.room1y})
@@ -425,6 +471,7 @@ def write_html(df, A, B, C, T, D):
         ("経過", lambda r: f"{int(r.res_age)}日", "res_age"),
         ("出来高比", lambda r: fmt(r.vol10r, 2, "倍"), "vol10r"),
         ("値幅", lambda r: f'{fmt(r.adr_yen, 0)}円<div class="sub">{fmt(r.adr, 1, "%")}</div>', "adr_yen"),
+        ("業種順位", sec_txt, "sec_rank"),
         ("信用倍率", ratio_txt, "m_ratio"),
         ("買残", buychg_txt, "m_wpct"),
         ("年高まで", room_txt, "room1y"),
@@ -452,6 +499,7 @@ def write_html(df, A, B, C, T, D):
         ("損切り目安", lambda r: f'{fmt(r.d_stop, 1)}<div class="sub">-{fmt(r.d_risk, 1, "%")}</div>', "d_risk"),
         ("3日上昇", lambda r: f'<span class="{"warn" if r.d_ext else ""}">{fmt(r.d_g3, 1, "%")}</span>', "d_g3"),
         ("相対強さ", lambda r: f"{r.rs60:+.0f}%", "rs60"),
+        ("業種順位", sec_txt, "sec_rank"),
         ("出来高", d_vol_txt, "d_vol_dip"),
         ("信用倍率", ratio_txt, "m_ratio"),
         ("買残", buychg_txt, "m_wpct"),
@@ -463,12 +511,17 @@ def write_html(df, A, B, C, T, D):
         ("最大上昇/日", lambda r: fmt(r.max_gain, 1, "%"), "max_gain"),
         ("25日線乖離", lambda r: fmt(r.dev25, 1, "%"), "dev25"),
         ("出来高比", lambda r: fmt(r.vol5r, 2, "倍"), "vol5r"),
+        ("業種順位", sec_txt, "sec_rank"),
         ("あと", lambda r: fmt(r.dist, 1, "%") if r.dist >= 0 else "高値更新中", "dist"),
         ("信用倍率", ratio_txt, "m_ratio"),
         ("買残", buychg_txt, "m_wpct"),
         ("年高まで", room_txt, "room1y"),
     ] + tail
 
+    mline, awarn = market_text()
+    mcls = "mk-ok" if MARKET.get("above25") else "mk-ng"
+    mbox = f'<p class="mk {mcls}">{html.escape(mline)}</p>' if mline else ""
+    awarn_html = f'<p class="note warn">{html.escape(awarn)}</p>' if awarn else ""
     cfg_txt = (f"売買代金{CFG['min_turnover']/1e8:.0f}億円以上・株価{CFG['min_price']}円以上／"
                f"上値＝過去{CFG['range_days']}日高値（{CFG['min_base_days']}日以上前）")
     page = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
@@ -493,9 +546,11 @@ td:nth-child(1) .sub{{white-space:nowrap}}
 a.spark{{display:inline-block;padding:4px 0}} a.spark svg{{display:block}}
 .sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
+.mk{{margin:8px 0 4px;padding:8px 12px;border-radius:8px;font-weight:600;font-size:14px}} .mk-ok{{background:rgba(209,52,58,.10);color:var(--up)}} .mk-ng{{background:rgba(31,138,85,.12);color:var(--dn)}}
 {WU.CSS}
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
+{mbox}
 <p class="note"><a href="track/">抽出結果のその後（成績ページ）</a></p>
 <p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。{html.escape(margin_note())}</p>
 <div class="tabs"><a id="wtab" href="#w">★ ウォッチ</a><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#d">D 押し目3連陽 {len(D)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
@@ -503,7 +558,8 @@ a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decorat
 {WU.HTML}
 
 <h2 id="a">A. ブレイク待ち（アラート候補） {len(A)}銘柄</h2>
-<p class="note">上値の{CFG['near_pct']:.0f}%以内・出来高が細っている・50日線の上。上値の価格にアラートを置く候補。赤の点線が上値。</p>
+<p class="note">上値の{CFG['near_pct']:.0f}%以内・出来高が細っている・50日線の上。上値の価格にアラートを置く候補。赤の点線が上値。業種順位は業種の直近20日騰落の順位（上位20%は赤）。</p>
+{awarn_html}
 {table(A, colsA)}
 
 <h2 id="b">B. 当日ブレイク {len(B)}銘柄</h2>
@@ -515,7 +571,7 @@ a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decorat
 {table(C, colsC)}
 
 <h2 id="d">D. 押し目からの3連陽 {len(D)}銘柄</h2>
-<p class="note">上昇トレンド中（25日線＞75日線）に、安値が25日・50日・75日線のどれかまで下がり（少しの割り込みは可）、そこから陽線3本・安値切り上げで離れた銘柄。50・75日線型は25日線を奪回済み、3連陽の出来高は平常の1.5倍未満、60日の値動きが市場の中央値より強く、1年高値まで20%以内。相対強さの順。アラート＝3本目の高値、損切り目安＝タッチから3本目までの最安値。赤の点線は触れた線。3日上昇のオレンジは走りすぎ（損切り幅が広い）。「売り枯れ」は押し目の出来高が平常の{PD.DRY}倍未満（参考の印）。{d_note(D)}</p>
+<p class="note">上昇トレンド中（25日線＞75日線）に、安値が25日・50日・75日線のどれかまで下がり（少しの割り込みは可）、そこから陽線3本・安値切り上げで離れた銘柄。50・75日線型は25日線を奪回済み、3連陽の出来高は平常の1.5倍未満、60日の値動きが市場の中央値より強く、1年高値まで20%以内。相対強さの順。業種順位は業種の直近20日騰落の順位（強い業種の D は全体比で成績が良いが、業種の勢いによる分が大きい）。アラート＝3本目の高値、損切り目安＝タッチから3本目までの最安値。赤の点線は触れた線。3日上昇のオレンジは走りすぎ（損切り幅が広い）。「売り枯れ」は押し目の出来高が平常の{PD.DRY}倍未満（参考の印）。{d_note(D)}</p>
 {table(D, colsD)}
 
 <h2 id="t">別枠. テーマ急騰 {len(T)}銘柄</h2>
@@ -582,8 +638,12 @@ PAGE_URL = "https://eplan4u-dotcom.github.io/kabu-screener/"
 
 
 def d_note(D):
-    """地合いの一斉反発で件数が増えた日の注意書き"""
-    return "　※今日は件数が多く、地合いの一斉反発の可能性。個別の強さは割り引いて見る。" if len(D) > 20 else ""
+    """件数による注意書き（2025/10〜2026/10 の再現：1日1〜3件の日は成功率38%、全体比+16pt）"""
+    if 1 <= len(D) <= 3:
+        return "　★今日は件数が少ない日（1〜3件）。過去1年の再現では、こうした日の D は成績が特に良かった。"
+    if len(D) > 20:
+        return "　※今日は件数が多く、地合いの一斉反発の可能性。個別の強さは割り引いて見る。"
+    return ""
 
 
 def write_summary(df, A, B, C, T, D, date):
@@ -594,8 +654,11 @@ def write_summary(df, A, B, C, T, D, date):
     def room(r):
         return "1年高値更新" if r.room1y <= 0 else f"1年高値まで{r.room1y:.1f}%"
 
-    L = [f"東証スクリーナー {date}（対象 {len(df):,}銘柄）", "", f"結果ページ: {PAGE_URL}", ""]
+    mline, awarn = market_text()
+    L = [f"東証スクリーナー {date}（対象 {len(df):,}銘柄）"] + ([mline] if mline else []) + ["", f"結果ページ: {PAGE_URL}", ""]
     L.append(f"■ A. ブレイク待ち（アラート候補） {len(A)}銘柄")
+    if awarn:
+        L.append(f"  ※{awarn}")
     for _, r in A.iterrows():
         L.append(f"・{name(r)}  終値{r.close:,.0f} → アラート {r.res:,.0f}（あと{r.dist:.1f}%）{margin_plain(r)}")
     L += ["", f"■ B. 当日ブレイク {len(B)}銘柄"]
@@ -607,7 +670,8 @@ def write_summary(df, A, B, C, T, D, date):
     L += ["", f"■ D. 押し目からの3連陽 {len(D)}銘柄{d_note(D)}"]
     for _, r in D.iterrows():
         dry = " 売り枯れ" if r.d_vol_dip < PD.DRY else ""
-        L.append(f"・{name(r)}  {r.d_type}日線から3連陽 → アラート {r.d_alert:,.0f}（あと{(r.d_alert / r.close - 1) * 100:.1f}%）"
+        sec = f" 業種{int(r.sec_rank)}位/{int(r.sec_n)}" if _num(r.get("sec_rank")) else ""
+        L.append(f"・{name(r)}  {r.d_type}日線から3連陽{sec} → アラート {r.d_alert:,.0f}（あと{(r.d_alert / r.close - 1) * 100:.1f}%）"
                  f" 損切り目安{r.d_stop:,.0f}（-{r.d_risk:.1f}%）{dry}{margin_plain(r)}")
     if len(T):
         L += ["", f"■ 別枠. テーマ急騰 {len(T)}銘柄（手法の対象外）"]
@@ -619,7 +683,8 @@ def write_summary(df, A, B, C, T, D, date):
         f.write("\n".join(L) + "\n")
     write_summary_html(df, A, B, C, T, D, date)
     with open(os.path.join(OUT, "subject.txt"), "w", encoding="utf-8") as f:
-        f.write(f"スクリーナー {date}  A{len(A)} / B{len(B)} / C{len(C)} / D{len(D)}")
+        mk = ("地合い○ " if MARKET.get("above25") else "地合い× ") if MARKET else ""
+        f.write(f"スクリーナー {date}  {mk}A{len(A)} / B{len(B)} / C{len(C)} / D{len(D)}")
 
 
 def write_summary_html(df, A, B, C, T, D, date):
@@ -646,10 +711,14 @@ def write_summary_html(df, A, B, C, T, D, date):
 
     parts = [f'<div style="font-family:-apple-system,\'Hiragino Sans\',sans-serif;max-width:560px;margin:0 auto;padding:4px 8px;color:#222;">',
              f'<div style="font-size:20px;font-weight:700;">東証スクリーナー {date}</div>',
-             f'<div style="font-size:13px;color:#888;margin:4px 0 14px;">対象 {len(df):,}銘柄</div>',
+             f'<div style="font-size:13px;color:#888;margin:4px 0 6px;">対象 {len(df):,}銘柄</div>',
+             (f'<div style="font-size:14px;font-weight:700;margin:0 0 14px;color:{"#d1343a" if MARKET.get("above25") else "#1f8a55"};">{E(market_text()[0])}</div>'
+              if MARKET else ""),
              f'<a href="{PAGE_URL}" style="display:inline-block;background:#1a56db;color:#fff;text-decoration:none;'
              'padding:10px 18px;border-radius:8px;font-size:15px;font-weight:600;">結果ページを開く</a><br>']
     parts.append(head("A. ブレイク待ち", len(A), "#1e3a8a", "#e8efff", "上値にアラートを置く候補（上値に近い順）"))
+    if market_text()[1]:
+        parts.append(f'<div style="font-size:13px;color:#d97706;font-weight:600;margin:-6px 0 10px 2px;">{E(market_text()[1])}</div>')
     for _, r in A.iterrows():
         parts.append(item(r, f'アラート <b>{r.res:,.0f}</b>　あと{r.dist:.1f}%'
                              f'<span style="color:#999;">（終値 {r.close:,.0f}）</span>'))
@@ -664,7 +733,8 @@ def write_summary_html(df, A, B, C, T, D, date):
                       "25・50・75日線まで押して、陽線3本で離れた銘柄（相対強さ順）" + d_note(D)))
     for _, r in D.iterrows():
         dry = '　<span style="color:#d1343a;">売り枯れ</span>' if r.d_vol_dip < PD.DRY else ""
-        parts.append(item(r, f'{r.d_type}日線から3連陽　アラート <b>{r.d_alert:,.0f}</b>'
+        sec = f'　<span style="color:#888;">業種{int(r.sec_rank)}位</span>' if _num(r.get("sec_rank")) else ""
+        parts.append(item(r, f'{r.d_type}日線から3連陽{sec}　アラート <b>{r.d_alert:,.0f}</b>'
                              f'<span style="color:#999;">（あと{(r.d_alert / r.close - 1) * 100:.1f}%）</span>'
                              f'　損切り目安 {r.d_stop:,.0f}（-{r.d_risk:.1f}%）{dry}'))
     if len(T):
@@ -682,7 +752,10 @@ def main():
     t0 = time.time()
     uni = load_universe()
     log(f"対象銘柄: {len(uni):,}")
-    prices = fetch_prices(uni.code.tolist())
+    prices = fetch_prices(uni.code.tolist() + [BENCH])
+    market(prices)
+    if MARKET:
+        log(market_text()[0])
     log("信用残を取得中...")
     try:
         m, info = margin.load(log)
