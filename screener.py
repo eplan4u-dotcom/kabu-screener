@@ -570,6 +570,9 @@ def write_all_json(date, A, B, C, D, T):
             nd = 0 if a["close"] >= 1000 else 1
             recs[-1]["sp"] = [r1(v, nd) for v in a["spark"]]
     os.makedirs(os.path.join(OUT, "data"), exist_ok=True)
+    # Google スプレッドシートのウォッチリストが IMPORTDATA で銘柄名を引くための一覧
+    with open(os.path.join(OUT, "data", "names.csv"), "w", encoding="utf-8") as f:
+        f.write("code,name\n" + "".join(f'{a["code"]},"{str(a["name"]).replace(chr(34), "")}"\n' for a in ALL))
     with open(os.path.join(OUT, "data", "all.json"), "w", encoding="utf-8") as f:
         json.dump(dict(date=date, margin=MARGIN_INFO.get("date"), stocks=recs), f, ensure_ascii=False,
                   separators=(",", ":"))

@@ -42,14 +42,17 @@ def from_sheet(ref):
     if text.lstrip().startswith("<"):      # 共有されていないとログイン画面のHTMLが返る
         return None
     out = []
+    col = dict(code=0, cost=1, qty=2, memo=3)    # 見出しが無いときの並び
+    names = {"コード": "code", "取得単価": "cost", "株数": "qty", "メモ": "memo"}
     for i, row in enumerate(csv.reader(io.StringIO(text))):
-        if not row or i == 0 and not re.fullmatch(r"[0-9][0-9A-Za-z]{3}", row[0].strip()):
-            continue                         # 見出し行・空行
-        code = row[0].strip().upper()
+        if i == 0 and any(h.strip() in names for h in row):
+            col = {names[h.strip()]: k for k, h in enumerate(row) if h.strip() in names}
+            continue                         # 見出し行（列の位置は見出しの名前で決める）
+        cell = lambda key: row[col[key]].strip() if key in col and len(row) > col[key] else ""
+        code = cell("code").upper()
         if not re.fullmatch(r"[0-9][0-9A-Z]{3}", code) or any(c == code for c, *_ in out):
             continue
-        cell = lambda k: row[k] if len(row) > k else ""
-        out.append((code, _num(cell(1)), _num(cell(2)), cell(3).strip()))
+        out.append((code, _num(cell("cost")), _num(cell("qty")), cell("memo")))
     return out
 
 
