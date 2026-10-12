@@ -42,3 +42,4 @@
 
 信用残はJPX公表 2026-10-08申込現在（前日比、週＝2026-10-02比）。信用倍率5倍以上・買残が週+10%以上はオレンジ。
 企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード
+抽出結果のその後（成績ページ）: https://eplan4u-dotcom.github.io/kabu-screener/track/
