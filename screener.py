@@ -8,6 +8,7 @@ import os, re, sys, time, datetime as dt, pickle, urllib.request, urllib.parse, 
 import numpy as np
 
 import margin
+import pattern_d as PD
 import pandas as pd
 import yfinance as yf
 
@@ -176,7 +177,22 @@ def analyze(d):
         else:
             break
 
+    # D. 押し目からの3連陽（判定は pattern_d.py。検証と同じ）
+    dsig = dict(d_ok=False)
+    try:
+        x = PD.calc(d)
+        t = len(c) - 1
+        r = PD.judge(x, t, CFG)
+        if r["ok"]:
+            f = PD.features(x, t, r)
+            dsig = {"d_" + k: f[k] for k in ("type", "line", "alert", "stop", "risk", "g3", "ext",
+                                              "reclaim25", "vol_dip", "vol_3")}
+            dsig.update(d_ok=True, d_since=t - r["touch_i"])
+    except Exception:
+        pass
+
     return dict(
+        **dsig, ret60=(c[-1] / c[-61] - 1) * 100,
         close=close, chg=(c[-1] / c[-2] - 1) * 100, turnover20=turnover20, adr=adr, adr_yen=close * adr / 100,
         ma5=ma5[-1], ma25=ma25[-1], ma50=ma50[-1],
         ma25_up=ma25[-1] > ma25[-6], ma50_up=ma50[-1] >= ma50[-11] * 0.99,   # 50日線が下向きでない
@@ -206,7 +222,7 @@ def screen(universe, prices):
         rows.append(a)
     df = pd.DataFrame(rows)
     if df.empty:
-        return df, df, df, df, df
+        return df, df, df, df, df, df
 
     # A. ブレイク待ち（アラート候補）
     A = df[(df.dist >= 0) & (df.dist <= CFG["near_pct"]) & (df.res_age >= CFG["min_base_days"])
@@ -231,7 +247,15 @@ def screen(universe, prices):
            & df.ma25_up & (df.vol5r >= 1.0) & (df.vol5r <= 3.0)
            & (df.dev25 <= CFG["c_max_dev25"])].copy()
     C = C.sort_values(["streak", "turnover20"], ascending=[False, False])
-    return df, A, B, C, T
+
+    # D. 押し目からの3連陽（25・50・75日線）
+    df["rs60"] = df.ret60 - df.ret60.median()           # 60日騰落の、市場（対象銘柄）の中央値との差
+    D = df[df.d_ok == True].copy()
+    if len(D):
+        view = pd.DataFrame({"type": D.d_type, "reclaim25": D.d_reclaim25.astype(bool), "vol_3": D.d_vol_3,
+                             "rs60": D.rs60, "room1y": D.room1y})
+        D = D[PD.prod_mask(view).values].sort_values("rs60", ascending=False)
+    return df, A, B, C, T, D
 
 
 def _num(x):
@@ -368,7 +392,18 @@ def margin_note():
     return f"信用残はJPX公表 {MARGIN_INFO['date']}申込現在（前日比{base}）。信用倍率5倍以上・買残が週+10%以上はオレンジ。"
 
 
-def write_html(df, A, B, C, T):
+def d_type_txt(r):
+    sub = "25日線を奪回" if r.d_type != "25" else ""
+    return f'<b>{r.d_type}日線</b>' + (f'<div class="sub">{sub}</div>' if sub else "")
+
+
+def d_vol_txt(r):
+    dry = r.d_vol_dip < PD.DRY
+    head = f'<span class="up">売り枯れ</span> ' if dry else ""
+    return f'{head}押し目 {fmt(r.d_vol_dip, 2, "倍")}<div class="sub">3連陽 {fmt(r.d_vol_3, 2, "倍")}</div>'
+
+
+def write_html(df, A, B, C, T, D):
     os.makedirs(OUT, exist_ok=True)
     date = df.date.max() if not df.empty else dt.date.today().isoformat()
     base = [
@@ -406,6 +441,18 @@ def write_html(df, A, B, C, T):
         ("買残", buychg_txt, "m_wpct"),
         ("年高まで", room_txt, "room1y"),
     ] + tail
+    colsD = base + [
+        ("型", d_type_txt, "d_type"),
+        ("アラート", lambda r: f'<b>{fmt(r.d_alert, 1)}</b><div class="sub">あと {fmt((r.d_alert / r.close - 1) * 100, 1, "%")}</div>', "d_alert"),
+        ("損切り目安", lambda r: f'{fmt(r.d_stop, 1)}<div class="sub">-{fmt(r.d_risk, 1, "%")}</div>', "d_risk"),
+        ("3日上昇", lambda r: f'<span class="{"warn" if r.d_ext else ""}">{fmt(r.d_g3, 1, "%")}</span>', "d_g3"),
+        ("相対強さ", lambda r: f"{r.rs60:+.0f}%", "rs60"),
+        ("出来高", d_vol_txt, "d_vol_dip"),
+        ("信用倍率", ratio_txt, "m_ratio"),
+        ("買残", buychg_txt, "m_wpct"),
+        ("年高まで", room_txt, "room1y"),
+        ("60日", lambda r: f'<a href="{tv(r.code)}" target="_blank" class="spark">{spark_svg(r.spark, r.d_line)}</a>', None),
+    ]
     colsC = base + [
         ("連騰", lambda r: f"<b>{int(r.streak)}日</b>", "streak"),
         ("最大上昇/日", lambda r: fmt(r.max_gain, 1, "%"), "max_gain"),
@@ -444,7 +491,7 @@ a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decorat
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
 <p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。{html.escape(margin_note())}</p>
-<div class="tabs"><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
+<div class="tabs"><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#d">D 押し目3連陽 {len(D)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
 
 <h2 id="a">A. ブレイク待ち（アラート候補） {len(A)}銘柄</h2>
 <p class="note">上値の{CFG['near_pct']:.0f}%以内・出来高が細っている・50日線の上。上値の価格にアラートを置く候補。赤の点線が上値。</p>
@@ -457,6 +504,10 @@ a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decorat
 <h2 id="c">C. 静かな連騰 {len(C)}銘柄</h2>
 <p class="note">{CFG['streak_min']}日以上続伸・1日+{CFG['streak_max_gain']:.0f}%以内・窓開け{CFG['gap_max']:.0f}%以内・5日＞25日＞50日線・出来高は平常の1〜3倍・25日線から{CFG['c_max_dev25']:.0f}%以内（走り終わりを除外）。</p>
 {table(C, colsC)}
+
+<h2 id="d">D. 押し目からの3連陽 {len(D)}銘柄</h2>
+<p class="note">上昇トレンド中（25日線＞75日線）に、安値が25日・50日・75日線のどれかまで下がり（少しの割り込みは可）、そこから陽線3本・安値切り上げで離れた銘柄。50・75日線型は25日線を奪回済み、3連陽の出来高は平常の1.5倍未満、60日の値動きが市場の中央値より強く、1年高値まで20%以内。相対強さの順。アラート＝3本目の高値、損切り目安＝タッチから3本目までの最安値。赤の点線は触れた線。3日上昇のオレンジは走りすぎ（損切り幅が広い）。「売り枯れ」は押し目の出来高が平常の{PD.DRY}倍未満（参考の印）。{d_note(D)}</p>
+{table(D, colsD)}
 
 <h2 id="t">別枠. テーマ急騰 {len(T)}銘柄</h2>
 <p class="note">上値は抜けたが、+{CFG['theme_gain']:.0f}%以上または出来高が平常の{CFG['theme_vol']:.0f}倍以上の急騰。ブレイク手法の対象外として参考表示。</p>
@@ -476,17 +527,23 @@ rows.forEach(r=>b.appendChild(r));}}
     with open(os.path.join(OUT, "latest.html"), "w", encoding="utf-8") as f:
         f.write(page)
     drop = ["spark"]
-    for name, x in (("A_breakout_watch", A), ("B_breakout_today", B), ("C_quiet_streak", C), ("T_theme_spike", T)):
+    for name, x in (("A_breakout_watch", A), ("B_breakout_today", B), ("C_quiet_streak", C), ("D_pullback_3up", D),
+                    ("T_theme_spike", T)):
         x.drop(columns=drop, errors="ignore").to_csv(os.path.join(OUT, f"{name}_{date}.csv"),
                                                      index=False, encoding="utf-8-sig")
-    write_summary(df, A, B, C, T, date)
+    write_summary(df, A, B, C, T, D, date)
     return path
 
 
 PAGE_URL = "https://eplan4u-dotcom.github.io/kabu-screener/"
 
 
-def write_summary(df, A, B, C, T, date):
+def d_note(D):
+    """地合いの一斉反発で件数が増えた日の注意書き"""
+    return "　※今日は件数が多く、地合いの一斉反発の可能性。個別の強さは割り引いて見る。" if len(D) > 20 else ""
+
+
+def write_summary(df, A, B, C, T, D, date):
     """メール本文（テキスト）を書き出す"""
     def name(r):
         return f"{r.code} {r['name']}（{r.get('sector', '')}）"
@@ -504,6 +561,11 @@ def write_summary(df, A, B, C, T, date):
     L += ["", f"■ C. 静かな連騰 {len(C)}銘柄"]
     for _, r in C.iterrows():
         L.append(f"・{name(r)}  終値{r.close:,.0f}  {int(r.streak)}日連騰 / 25日線+{r.dev25:.1f}%{margin_plain(r)}")
+    L += ["", f"■ D. 押し目からの3連陽 {len(D)}銘柄{d_note(D)}"]
+    for _, r in D.iterrows():
+        dry = " 売り枯れ" if r.d_vol_dip < PD.DRY else ""
+        L.append(f"・{name(r)}  {r.d_type}日線から3連陽 → アラート {r.d_alert:,.0f}（あと{(r.d_alert / r.close - 1) * 100:.1f}%）"
+                 f" 損切り目安{r.d_stop:,.0f}（-{r.d_risk:.1f}%）{dry}{margin_plain(r)}")
     if len(T):
         L += ["", f"■ 別枠. テーマ急騰 {len(T)}銘柄（手法の対象外）"]
         for _, r in T.iterrows():
@@ -511,12 +573,12 @@ def write_summary(df, A, B, C, T, date):
     L += ["", margin_note(), "企業ページ（会社四季報）: https://shikiho.toyokeizai.net/stocks/コード"]
     with open(os.path.join(OUT, "summary.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(L) + "\n")
-    write_summary_html(df, A, B, C, T, date)
+    write_summary_html(df, A, B, C, T, D, date)
     with open(os.path.join(OUT, "subject.txt"), "w", encoding="utf-8") as f:
-        f.write(f"スクリーナー {date}  A{len(A)} / B{len(B)} / C{len(C)}")
+        f.write(f"スクリーナー {date}  A{len(A)} / B{len(B)} / C{len(C)} / D{len(D)}")
 
 
-def write_summary_html(df, A, B, C, T, date):
+def write_summary_html(df, A, B, C, T, D, date):
     """読みやすいHTMLメール本文。1銘柄＝2行、銘柄名は四季報チャートへのリンク"""
     E = html.escape
     sec_css = "margin:28px 0 6px;padding:8px 12px;border-radius:8px;font-size:16px;font-weight:700;"
@@ -554,6 +616,13 @@ def write_summary_html(df, A, B, C, T, date):
     parts.append(head("C. 静かな連騰", len(C), "#14532d", "#e9f7ee", "急騰なしで続伸・25日線から近い"))
     for _, r in C.iterrows():
         parts.append(item(r, f'終値 <b>{r.close:,.0f}</b>　{int(r.streak)}日連騰　25日線 +{r.dev25:.1f}%'))
+    parts.append(head("D. 押し目からの3連陽", len(D), "#5b21b6", "#f1ebff",
+                      "25・50・75日線まで押して、陽線3本で離れた銘柄（相対強さ順）" + d_note(D)))
+    for _, r in D.iterrows():
+        dry = '　<span style="color:#d1343a;">売り枯れ</span>' if r.d_vol_dip < PD.DRY else ""
+        parts.append(item(r, f'{r.d_type}日線から3連陽　アラート <b>{r.d_alert:,.0f}</b>'
+                             f'<span style="color:#999;">（あと{(r.d_alert / r.close - 1) * 100:.1f}%）</span>'
+                             f'　損切り目安 {r.d_stop:,.0f}（-{r.d_risk:.1f}%）{dry}'))
     if len(T):
         parts.append(head("別枠. テーマ急騰", len(T), "#555", "#f1f1f1", "手法の対象外（参考）"))
         for _, r in T.iterrows():
@@ -578,12 +647,12 @@ def main():
     except Exception as e:
         log(f"信用残の取得に失敗（表示なしで続行）: {e}")
     log(f"株価データ取得: {len(prices):,}銘柄")
-    df, A, B, C, T = screen(uni, prices)
+    df, A, B, C, T, D = screen(uni, prices)
     if df.empty:
         log("分析できる銘柄がありませんでした。ネット接続を確認してください。")
         return
-    path = write_html(df, A, B, C, T)
-    log(f"\n完了（{time.time() - t0:.0f}秒）  A:{len(A)}  B:{len(B)}  C:{len(C)}  テーマ:{len(T)}")
+    path = write_html(df, A, B, C, T, D)
+    log(f"\n完了（{time.time() - t0:.0f}秒）  A:{len(A)}  B:{len(B)}  C:{len(C)}  D:{len(D)}  テーマ:{len(T)}")
     log(f"結果: {path}")
     if "--no-open" not in sys.argv:
         webbrowser.open("file:///" + path.replace("\\", "/"))
