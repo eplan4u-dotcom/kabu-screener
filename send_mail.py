@@ -13,10 +13,26 @@ if not user or not pw:
     sys.exit(0)
 body = open("docs/summary.txt", encoding="utf-8").read()
 subject = open("docs/subject.txt", encoding="utf-8").read().strip()
+body_html = open("docs/summary.html", encoding="utf-8").read() if os.path.exists("docs/summary.html") else ""
+
+# ウォッチ欄（Secrets の WATCHLIST）。公開リポジトリなので、ファイルにもログにも残さずメールの中だけに入れる
+try:
+    import watch_mail
+    w_text, w_html = watch_mail.build(os.environ.get("WATCHLIST", ""))
+except Exception as e:
+    w_text, w_html = "", ""
+    print(f"ウォッチ欄の作成に失敗（ウォッチ欄なしで送信）: {type(e).__name__}")
+if w_text:
+    i = body.find("\n■ A.")
+    body = body[:i + 1] + w_text + body[i + 1:] if i >= 0 else w_text + body
+if w_html and body_html:
+    mark = "結果ページを開く</a><br>"
+    body_html = body_html.replace(mark, mark + w_html, 1) if mark in body_html else w_html + body_html
+
 msg = MIMEMultipart("alternative")
 msg.attach(MIMEText(body, "plain", "utf-8"))
-if os.path.exists("docs/summary.html"):
-    msg.attach(MIMEText(open("docs/summary.html", encoding="utf-8").read(), "html", "utf-8"))
+if body_html:
+    msg.attach(MIMEText(body_html, "html", "utf-8"))
 msg["Subject"] = Header(subject, "utf-8")
 msg["From"] = user
 msg["To"] = to

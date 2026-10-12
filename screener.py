@@ -9,6 +9,7 @@ import numpy as np
 
 import margin
 import pattern_d as PD
+import watch_ui as WU
 import pandas as pd
 import yfinance as yf
 
@@ -42,6 +43,7 @@ CFG = dict(
 
 
 MARGIN, MARGIN_INFO = {}, {}
+ALL = []   # 売買代金の条件に関係なく、分析できた全銘柄（ウォッチリスト用の all.json に使う）
 
 
 def log(msg):
@@ -152,7 +154,7 @@ def analyze(d):
     close = c[-1]
     turnover20 = float(np.mean(c[-20:] * v[-20:]))
     s = pd.Series(c)
-    ma5, ma25, ma50 = (s.rolling(n).mean().values for n in (5, 25, 50))
+    ma5, ma25, ma50, ma75 = (s.rolling(n).mean().values for n in (5, 25, 50, 75))
     adr = float(np.mean((h[-20:] / l[-20:] - 1) * 100))
     vol50 = float(np.mean(v[-51:-1]))
     if vol50 <= 0:
@@ -194,7 +196,7 @@ def analyze(d):
     return dict(
         **dsig, ret60=(c[-1] / c[-61] - 1) * 100,
         close=close, chg=(c[-1] / c[-2] - 1) * 100, turnover20=turnover20, adr=adr, adr_yen=close * adr / 100,
-        ma5=ma5[-1], ma25=ma25[-1], ma50=ma50[-1],
+        ma5=ma5[-1], ma25=ma25[-1], ma50=ma50[-1], ma75=ma75[-1],
         ma25_up=ma25[-1] > ma25[-6], ma50_up=ma50[-1] >= ma50[-11] * 0.99,   # 50日線が下向きでない
         dev25=(close / ma25[-1] - 1) * 100,
         vol_today=v[-1] / vol50, vol10r=vol10 / vol_prev if vol_prev > 0 else 1.0, vol5r=vol5 / vol50,
@@ -213,12 +215,15 @@ def screen(universe, prices):
         if d is None:
             continue
         a = analyze(d)
-        if a is None or a["close"] < CFG["min_price"] or a["turnover20"] < CFG["min_turnover"]:
+        if a is None:
             continue
         a.update(code=u.code, name=u["name"], market=u.market, sector=u.sector)
         m = MARGIN.get(u.code) or {}
         a.update(m_ratio=m.get("ratio"), m_buy=m.get("buy"), m_sell=m.get("sell"),
                  m_dbuy=m.get("dbuy"), m_wbuy=m.get("wbuy"), m_wpct=m.get("wpct"))
+        ALL.append(a)
+        if a["close"] < CFG["min_price"] or a["turnover20"] < CFG["min_turnover"]:
+            continue
         rows.append(a)
     df = pd.DataFrame(rows)
     if df.empty:
@@ -355,7 +360,7 @@ def tv(code):
 def name_cell(r):
     """1行目: 銘柄名（四季報企業ページ）／2行目: コード（TradingView）・業種・株探"""
     sector = html.escape(str(r.sector)).replace("・", "")
-    return (f'<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a>'
+    return (f'{WU.star(r.code)}<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a>'
             f'<div class="sub"><a class="nm" href="{tv(r.code)}" target="_blank">{r.code}</a>・{sector}・'
             f'<a href="https://kabutan.jp/stock/chart?code={r.code}" target="_blank">株探</a></div>')
 
@@ -488,11 +493,14 @@ td:nth-child(1) .sub{{white-space:nowrap}}
 a.spark{{display:inline-block;padding:4px 0}} a.spark svg{{display:block}}
 .sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
+{WU.CSS}
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
 <p class="note"><a href="track/">抽出結果のその後（成績ページ）</a></p>
 <p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。{html.escape(margin_note())}</p>
-<div class="tabs"><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#d">D 押し目3連陽 {len(D)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
+<div class="tabs"><a id="wtab" href="#w">★ ウォッチ</a><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#d">D 押し目3連陽 {len(D)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
+
+{WU.HTML}
 
 <h2 id="a">A. ブレイク待ち（アラート候補） {len(A)}銘柄</h2>
 <p class="note">上値の{CFG['near_pct']:.0f}%以内・出来高が細っている・50日線の上。上値の価格にアラートを置く候補。赤の点線が上値。</p>
@@ -520,6 +528,7 @@ const asc=th.dataset.asc!=='1';th.dataset.asc=asc?'1':'0';
 const rows=[...b.rows].sort((x,y)=>{{let a=x.cells[i].dataset.v,c=y.cells[i].dataset.v;const na=parseFloat(a),nc=parseFloat(c);
 if(!isNaN(na)&&!isNaN(nc))return asc?na-nc:nc-na;return asc?String(a).localeCompare(c,'ja'):String(c).localeCompare(a,'ja');}});
 rows.forEach(r=>b.appendChild(r));}}
+{WU.JS}
 
 </script></body></html>"""
     path = os.path.join(OUT, f"screen_{date}.html")
@@ -533,7 +542,37 @@ rows.forEach(r=>b.appendChild(r));}}
         x.drop(columns=drop, errors="ignore").to_csv(os.path.join(OUT, f"{name}_{date}.csv"),
                                                      index=False, encoding="utf-8-sig")
     write_summary(df, A, B, C, T, D, date)
+    write_all_json(date, A, B, C, D, T)
     return path
+
+
+def write_all_json(date, A, B, C, D, T):
+    """ウォッチリスト用：全銘柄の今日の指標（公開データのみ。個人の銘柄リストは含まない）"""
+    lists = {}
+    for key, x in (("A", A), ("B", B), ("C", C), ("D", D), ("T", T)):
+        for code in x.code if len(x) else []:
+            lists[code] = lists.get(code, "") + key
+
+    def r1(v, nd=1):
+        return None if not _num(v) else round(float(v), nd)
+    recs = []
+    for a in ALL:
+        recs.append(dict(
+            c=a["code"], n=a["name"], s=a["sector"], p=r1(a["close"]), ch=r1(a["chg"], 2),
+            m25=r1(a["ma25"]), m50=r1(a["ma50"]), m75=r1(a["ma75"]), l10=r1(a["low10"]),
+            res=r1(a["res"]), hy=r1(a["hi1y"]), adr=r1(a["adr"]), vr=r1(a["vol_today"], 2),
+            to=r1(a["turnover20"] / 1e8, 1), L=lists.get(a["code"], ""),
+            da=r1(a.get("d_alert")), dst=r1(a.get("d_stop")), dt=a.get("d_type") if a.get("d_ok") else None,
+            mr=r1(a.get("m_ratio"), 2), mw=r1(a.get("m_wpct"), 0), mwb=r1(a.get("m_wbuy"), 0),
+            md=r1(a.get("m_dbuy"), 0), mb=r1(a.get("m_buy"), 0),
+        ))
+        if a["turnover20"] >= CFG["min_turnover"]:     # 容量を抑えるため、60日チャートは対象銘柄のみ
+            nd = 0 if a["close"] >= 1000 else 1
+            recs[-1]["sp"] = [r1(v, nd) for v in a["spark"]]
+    os.makedirs(os.path.join(OUT, "data"), exist_ok=True)
+    with open(os.path.join(OUT, "data", "all.json"), "w", encoding="utf-8") as f:
+        json.dump(dict(date=date, margin=MARGIN_INFO.get("date"), stocks=recs), f, ensure_ascii=False,
+                  separators=(",", ":"))
 
 
 PAGE_URL = "https://eplan4u-dotcom.github.io/kabu-screener/"
