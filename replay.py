@@ -21,7 +21,7 @@ import screener as S
 LOG = os.path.join(S.BASE, "data", "signals", "replay.csv")
 COLS = ["date", "list", "code", "name", "sector", "close", "alert", "stop", "dtype", "rule", "ver"]
 RULE = {"A": "alert", "B": "next_open", "C": "next_open", "D": "alert", "T": "next_open"}
-DEFAULT_FROM, DEFAULT_TO = "2026-09-01", "2026-10-08"
+DEFAULT_FROM, DEFAULT_TO = "2026-06-01", "2026-10-08"
 
 
 def fetch(codes):
@@ -123,9 +123,17 @@ def main():
     if os.path.exists(real):
         have = set(pd.read_csv(real, dtype=str).date)
         out = out[~out.date.isin(have)]
+    # 今回の期間外の再現結果は残す（期間を分けて実行しても積み上がる）
+    if os.path.exists(LOG):
+        old = pd.read_csv(LOG, dtype={"code": str, "date": str})
+        out = pd.concat([old[(old.date < d0) | (old.date > d1)], out], ignore_index=True)
     out.sort_values(["date", "list", "code"]).to_csv(LOG, index=False, encoding="utf-8")
-    pd.DataFrame(counts, columns=["date", "universe", "A", "B", "C", "D", "T"]).to_csv(
-        os.path.join(os.path.dirname(LOG), "replay_counts.csv"), index=False, encoding="utf-8")
+    cnt = pd.DataFrame(counts, columns=["date", "universe", "A", "B", "C", "D", "T"])
+    cpath = os.path.join(os.path.dirname(LOG), "replay_counts.csv")
+    if os.path.exists(cpath):
+        oc = pd.read_csv(cpath, dtype={"date": str})
+        cnt = pd.concat([oc[(oc.date < d0) | (oc.date > d1)], cnt], ignore_index=True).sort_values("date")
+    cnt.to_csv(cpath, index=False, encoding="utf-8")
     S.log(f"\n完了（{time.time() - t0:.0f}秒）  再現 {len(out):,}件 → {LOG}")
 
 
