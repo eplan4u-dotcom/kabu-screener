@@ -39,12 +39,14 @@ CASES = [
 # SBI証券アプリのチャートに表示されていた移動平均（2026/10/09）。期間の逆算に使う
 CHART_MA = {"3064": (1979.6, 1943.1, 1923.7), "4901": (3327.1, 3382.5, 3441.6), "7180": (1660.5, 1592.2, 1565.7)}
 CHART_DATE = dt.date(2026, 10, 9)
+# この日以降＝条件選びに使った期間。それより前＝条件選びに使っていない期間（期間外の確認用）
+RECENT_FROM = dt.date(2025, 9, 18)
 # ===============================================
 
 
 def fetch(codes):
     os.makedirs(S.CACHE, exist_ok=True)
-    cpath = os.path.join(S.CACHE, f"bt_prices_{dt.date.today()}.pkl")
+    cpath = os.path.join(S.CACHE, f"bt_prices5y_{dt.date.today()}.pkl")
     if os.path.exists(cpath):
         with open(cpath, "rb") as f:
             return pickle.load(f)
@@ -54,7 +56,7 @@ def fetch(codes):
         S.log(f"株価取得中 {i + len(part)}/{len(tickers)}")
         for _ in range(3):
             try:
-                df = yf.download(part, period="2y", interval="1d", group_by="ticker",
+                df = yf.download(part, period="5y", interval="1d", group_by="ticker",
                                  auto_adjust=False, threads=True, progress=False)
                 break
             except Exception as e:
@@ -262,6 +264,44 @@ def evaluate(df):
     return pd.DataFrame(rows).sort_values("t", ascending=False)
 
 
+OOS = [
+    ("基本条件のみ", []),
+    ("押し目出来高0.8倍未満（売り枯れ）", ["V1"]),
+    ("奪回＋3連陽出来高＋相対強さ＋1年高値（売り枯れなし）", ["R", "Q", "S", "H"]),
+    ("厳選条件（売り枯れ＋3連陽出来高＋相対強さ＋1年高値）", ["V1", "Q", "S", "H"]),
+    ("厳選条件＋奪回", ["V1", "R", "Q", "S", "H"]),
+]
+FMAP = {"V1": FILTERS["V"][1][1], "R": FILTERS["R"][1][1], "Q": FILTERS["Q"][1][1],
+        "S": FILTERS["S"][1][1], "H": FILTERS["H"][1][1]}
+
+
+def out_of_sample(old):
+    E = html.escape
+    if old.empty:
+        return dict(span="データなし", rows="")
+    rows = []
+    for nm, keys in OOS:
+        for typ in (None, "25", "50", "75"):
+            m = pd.Series(True, index=old.index)
+            for k in keys:
+                m &= FMAP[k](old)
+            if typ:
+                m &= old["type"] == typ
+            g = old[m & old.ex20.notna()]
+            label = nm + ("" if typ is None else f"　{typ}型")
+            if len(g) < 20:
+                rows.append(f"<tr><td style='white-space:normal'>{E(label)}</td><td>{len(g)}</td>" + "<td>-</td>" * 7 + "</tr>")
+                continue
+            yrs = g.groupby(g.date.map(lambda d: d.year)).ex20.mean()
+            ytxt = "　".join(f"{y}: {v:+.1f}%" for y, v in yrs.items())
+            rows.append(
+                f"<tr><td style='white-space:normal;min-width:14em'>{'' if typ is None else '　'}{E(label)}</td><td>{len(g):,}</td>"
+                f"<td>{m.sum() / old.attrs['ndays']:.1f}</td><td><b>{pct(g.ex20.mean())}</b></td><td>{pct(g.ex20.median())}</td>"
+                f"<td>{(g.ex20 > 0).mean() * 100:.0f}%</td><td>{ytxt}</td>"
+                f"<td>{g.stop20.dropna().astype(bool).mean() * 100:.0f}%</td><td>{pct(g.a_ex20.mean())}</td></tr>")
+    return dict(span=f"{old.date.min()}〜{old.date.max()}", rows="".join(rows))
+
+
 def ma_check(X):
     """チャートの移動平均の値から、何日線かを逆算する"""
     out = []
@@ -296,7 +336,7 @@ def main():
         X[code] = x
         n = len(x["c"])
         o_, c_ = x["o"], x["c"]
-        for t in range(max(120, n - 250), n):
+        for t in range(120, n):
             if liquid(x, t):
                 day = x["dates"][t]
                 b = base.setdefault(day, [[], []])
@@ -321,7 +361,12 @@ def main():
     df.attrs["ndays"] = len(base)
     S.log(f"シグナル {len(df):,}件（{time.time() - t0:.0f}秒）")
 
+    old = df[df.date < RECENT_FROM].copy()
+    df = df[df.date >= RECENT_FROM].copy()
+    df.attrs["ndays"] = sum(1 for k in base if k >= RECENT_FROM)
+    old.attrs["ndays"] = sum(1 for k in base if k < RECENT_FROM)
     grid = evaluate(df)
+    oos = out_of_sample(old)
     case_rows = []
     for code, nm, a, b in CASES:
         x = X.get(code)
@@ -340,7 +385,7 @@ def main():
                                           res=("成立（" + r["タッチ"] + "型）") if r["ok"] else "不成立：" + r.get("fail", "")))
         if not found:
             case_rows.append(dict(code=code, name=nm, date=f"{a}〜{b}", res="期間内に陽線3本の並びなし"))
-    write(df, grid, case_rows, X, ma_check(X))
+    write(df, grid, case_rows, X, ma_check(X), oos)
     S.log(f"完了（{time.time() - t0:.0f}秒）")
 
 
@@ -348,7 +393,7 @@ def pct(x, nd=1):
     return "-" if x is None or (isinstance(x, float) and np.isnan(x)) else f"{x:+.{nd}f}%"
 
 
-def write(df, grid, cases, X, mac):
+def write(df, grid, cases, X, mac, oos):
     os.makedirs(OUT, exist_ok=True)
     E = html.escape
     df.drop(columns=["t", "ti"]).to_csv(os.path.join(OUT, "signals.csv"), index=False, encoding="utf-8-sig")
@@ -437,6 +482,10 @@ a{{color:#5b7fd6}}
 <h2>3. 厳選条件（{E("＋".join(n for n, _ in CHOSEN))}）</h2>
 <p>{E(ch_txt)}</p>
 <div class="wrap"><table><tr><th>区分</th><th>件数</th><th>20日後 超過</th><th>20日後 騰落</th><th>勝率</th><th>前半</th><th>後半</th><th>損切り到達</th><th>アラート買い 超過</th></tr>{"".join(chs)}</table></div>
+
+<h2>3b. 条件選びに使っていない期間での確認（{oos["span"]}）</h2>
+<p class="note">直近1年で選んだ条件が、それより前の期間でも効くかの確認。ここでも超過がプラスなら、たまたまではない可能性が高くなります。銘柄は今の上場銘柄のみ（その後に上場廃止した銘柄は含まない）。</p>
+<div class="wrap"><table><tr><th>条件</th><th>件数</th><th>1日あたり</th><th>20日後 超過</th><th>超過 中央値</th><th>勝率</th><th>各年の超過</th><th>損切り到達</th><th>アラート買い 超過</th></tr>{oos["rows"]}</table></div>
 
 <h2>4. 追加条件を1つだけ足した場合</h2>
 <div class="wrap"><table>{head}{"".join(grow(r) for r in single.itertuples())}</table></div>
