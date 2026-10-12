@@ -25,6 +25,7 @@ import yfinance as yf
 BASE = os.path.dirname(os.path.abspath(__file__))
 DOCS = os.environ.get("SCREENER_OUT") or os.path.join(BASE, "docs")
 LOG = os.environ.get("TRACK_LOG") or os.path.join(BASE, "data", "signals", "log.csv")
+REPLAY_LOG = os.path.join(BASE, "data", "signals", "replay.csv")   # 過去日の再現（replay.py）
 OUT = os.path.join(DOCS, "track")
 CACHE = os.path.join(BASE, "cache")
 
@@ -339,10 +340,17 @@ def summary_rows(ev):
     return "".join(rows)
 
 
-def write(ev, base):
+REPLAY_NOTE = ("過去日の再現：その日までの株価だけで当時の抽出結果を作り直し、同じルールで成績を計算したものです。"
+               "実際の記録（成績ページ）とは分けて集計しています。銘柄一覧は現在のもの（上場廃止銘柄は含まない）。"
+               "Dは直近1年のデータで条件を決めたため、この期間の再現は成績が良く出やすい点に注意。")
+
+
+def write(ev, base, replay=False):
     os.makedirs(OUT, exist_ok=True)
     E = html.escape
-    ev.to_csv(os.path.join(OUT, "track.csv"), index=False, encoding="utf-8-sig")
+    stem = "replay" if replay else "track"
+    page_name = "replay.html" if replay else "index.html"
+    ev.to_csv(os.path.join(OUT, f"{stem}.csv"), index=False, encoding="utf-8-sig")
     head = ("<tr><th>リスト</th><th>件数</th><th>決済済み</th><th>アラート到達</th><th>勝率</th><th>平均損益</th>"
             "<th>TOPIX比</th><th>損切り率</th><th>最大上昇</th><th>終値20日後 TOPIX比</th><th>（件数）</th></tr>")
     normal = ev[~ev.shock]
@@ -352,7 +360,7 @@ def write(ev, base):
     shock_days = sorted(ev[ev.shock].date.unique())
 
     rec = ev.sort_values(["date", "list"], ascending=[False, True])
-    recent_days = sorted(ev.date.unique())[-30:]
+    recent_days = sorted(ev.date.unique())[-(60 if replay else 30):]
     rec = rec[rec.date.isin(recent_days)]
     cls = {"損切り": "dn", "20日満了": "", "保有中": "up", "アラート待ち": "mut", "未到達": "mut", "翌日待ち": "mut"}
     fcls = {"成功": "up", "失敗（損切り）": "dn", "失敗（届かず）": "", "判定待ち": "mut"}
@@ -378,7 +386,7 @@ def write(ev, base):
             f'<td>{"-" if pd.isna(r.get("days")) else int(r.get("days"))}日</td></tr>')
 
     page = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>スクリーナー成績</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{"スクリーナー成績（再現）" if replay else "スクリーナー成績"}</title>
 <style>
 :root{{--bg:#fafaf9;--fg:#1c1c1a;--mut:#6b6b66;--line:#e4e4e0;--card:#fff;--up:#d1343a;--dn:#1f8a55;--acc:#2a5bd7}}
 @media (prefers-color-scheme:dark){{:root{{--bg:#141413;--fg:#ececea;--mut:#9a9a94;--line:#2c2c2a;--card:#1c1c1b;--up:#f06a6e;--dn:#4cc38a;--acc:#7aa2ff}}}}
@@ -389,8 +397,9 @@ table{{border-collapse:collapse;width:100%;white-space:nowrap}} th,td{{padding:7
 th{{font-size:12px;color:var(--mut)}} td:first-child,th:first-child{{text-align:left;position:sticky;left:0;background:var(--card);z-index:1}}
 .up{{color:var(--up)}} .dn{{color:var(--dn)}} .mut{{color:var(--mut)}} a{{color:var(--acc)}} a.nm{{color:inherit}}
 </style></head><body><main>
-<h1>スクリーナーの成績（フォワードテスト）</h1>
-<p class="note">更新 {dt.datetime.now() + dt.timedelta(hours=9):%Y-%m-%d %H:%M}／記録 {len(ev):,}件（{ev.date.min() if len(ev) else "-"}〜{ev.date.max() if len(ev) else "-"}）／ルール 第{RULE_VERSION}版／<a href="../">結果ページへ</a></p>
+<h1>{"スクリーナーの成績（過去日の再現）" if replay else "スクリーナーの成績（フォワードテスト）"}</h1>
+<p class="note">更新 {dt.datetime.now() + dt.timedelta(hours=9):%Y-%m-%d %H:%M}／記録 {len(ev):,}件（{ev.date.min() if len(ev) else "-"}〜{ev.date.max() if len(ev) else "-"}）／ルール 第{RULE_VERSION}版／<a href="../">結果ページへ</a>／{'<a href="./">実際の記録へ</a>' if replay else ('<a href="replay.html">過去日の再現へ</a>' if os.path.exists(REPLAY_LOG) else "")}</p>
+{f'<p class="note"><b>{E(REPLAY_NOTE)}</b></p>' if replay else ""}
 <p class="note">実際の取引とは別に、抽出した銘柄を決まったルールで機械的に売買した場合の成績です。
 買い：A・Dは出てから{ALERT_DAYS}営業日以内にアラートを超えたら、その価格で買い（窓を開けたら始値）。B・C・別枠は翌営業日の始値。
 売り：損切り目安（A・B・C・別枠＝10日安値、D＝タッチから3本目までの最安値）を割ったら損切り、割らなければ{HOLD}営業日後の終値。
@@ -408,31 +417,46 @@ th{{font-size:12px;color:var(--mut)}} td:first-child,th:first-child{{text-align:
 大きな下落や一斉反発のような外的要因を除いた、ふだんの成績です。該当日: {E("、".join(d[5:] for d in shock_days)) or "なし"}</p>
 <div class="wrap"><table>{fhead}{first_rows(normal, base)}</table></div>
 
-<h2>直近30営業日の銘柄ごとの経過</h2>
+<h2>直近{len(recent_days)}営業日の銘柄ごとの経過</h2>
 <div class="wrap"><table><tr><th>銘柄</th><th>抽出日</th><th>リスト</th><th>抽出時の終値</th><th>アラート</th><th>損切り目安</th><th>買値</th><th>初動の目標</th><th>初動</th><th>5日内の最大上昇</th><th>20日の状態</th><th>20日の損益</th><th>経過</th></tr>{"".join(rows)}</table></div>
 
 <h2>参考：20営業日保有の成績</h2>
 <p class="note">損切り目安を割らなければ20営業日後の終値で決済した場合。初動のあとの押しも含むので、手法の評価は上の初動の成功率を優先します。</p>
 <div class="wrap"><table>{head}{summary_rows(ev)}</table></div>
-<p class="note">全件: <a href="track.csv">track.csv</a>／記録: data/signals/log.csv</p>
+<p class="note">全件: <a href="{stem}.csv">{stem}.csv</a>／記録: data/signals/{"replay.csv" if replay else "log.csv"}</p>
 </main></body></html>"""
-    with open(os.path.join(OUT, "index.html"), "w", encoding="utf-8") as f:
+    with open(os.path.join(OUT, page_name), "w", encoding="utf-8") as f:
         f.write(page)
+
+
+def clean(sig):
+    sig = sig.copy()
+    sig["code"] = sig.code.astype(str)
+    sig["date"] = sig.date.astype(str)
+    sig["dtype"] = sig.dtype.fillna("").astype(str).str.replace(".0", "", regex=False)
+    return sig
 
 
 def main():
     sig = ingest()
-    if sig.empty:
+    rep = pd.read_csv(REPLAY_LOG, dtype={"code": str, "date": str}) if os.path.exists(REPLAY_LOG) else pd.DataFrame()
+    if sig.empty and rep.empty:
         log("記録がありません")
         return
-    sig["code"] = sig.code.astype(str)
-    sig["date"] = sig.date.astype(str)
-    sig["dtype"] = sig.dtype.fillna("").astype(str).str.replace(".0", "", regex=False)
-    px = prices(sorted(set(sig.code)) + [BENCH])
-    ev = evaluate(sig, px)
-    base = base_rates(sorted(set(ev.date)))
-    write(ev, base)
-    log(f"成績ページを更新: {len(ev):,}件")
+    sig = clean(sig) if len(sig) else sig
+    rep = clean(rep) if len(rep) else rep
+    codes = set(sig.code if len(sig) else []) | set(rep.code if len(rep) else [])
+    px = prices(sorted(codes) + [BENCH])
+    dates = set(sig.date if len(sig) else []) | set(rep.date if len(rep) else [])
+    base = base_rates(sorted(dates))
+    if len(sig):
+        ev = evaluate(sig, px)
+        write(ev, base)
+        log(f"成績ページを更新: {len(ev):,}件")
+    if len(rep):
+        evr = evaluate(rep, px)
+        write(evr, base, replay=True)
+        log(f"再現の成績ページを更新: {len(evr):,}件")
 
 
 if __name__ == "__main__":
