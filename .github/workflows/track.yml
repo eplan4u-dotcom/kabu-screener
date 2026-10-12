@@ -1,0 +1,33 @@
+name: track
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'track.py'
+      - '.github/workflows/track.yml'
+permissions:
+  contents: write
+concurrency:
+  group: kabu-publish
+  cancel-in-progress: false
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python track.py
+        env:
+          SCREENER_OUT: docs
+      - name: publish
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/signals docs/track
+          git commit -m "track $(date +%F)" || echo "no changes"
+          git pull --rebase origin main
+          git push

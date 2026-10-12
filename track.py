@@ -129,6 +129,35 @@ def prices(codes):
     return data
 
 
+SPLITS = [2, 3, 4, 5, 10, 20, 25, 50, 100]
+
+
+def adjust_splits(d):
+    """株価データに分割・併合の未調整があれば、それより前の値を調整する（例: 1306 の 2026/3 の分割）。
+    前日終値と当日始値の比が分割比（2・3・4・5・10…倍）に近く、値幅制限では起こりえない大きさのときだけ直す"""
+    if d is None or len(d) < 2:
+        return d
+    c, o = d.Close.astype(float).values, d.Open.astype(float).values
+    d = d.copy()
+    for t in range(len(d) - 1, 0, -1):
+        r = c[t - 1] / o[t] if o[t] > 0 else 1
+        if 0.6 < r < 1.7:
+            continue
+        f = None
+        for k in SPLITS:
+            for cand in (k, 1 / k):
+                if abs(r / cand - 1) < 0.15:
+                    f = cand
+        if f is None:
+            continue
+        idx = d.index[:t]
+        for col in ("Open", "High", "Low", "Close"):
+            d.loc[idx, col] = d.loc[idx, col].astype(float) / f
+        d.loc[idx, "Volume"] = d.loc[idx, "Volume"].astype(float) * f
+        c, o = d.Close.astype(float).values, d.Open.astype(float).values
+    return d
+
+
 # ---------- 3. 評価 ----------
 def first_move(h, l, c, entry_i, entry, stop, adr, n):
     """初動の判定。戻り値: (結果, 5日以内の最大上昇%, 目標価格)"""
@@ -162,6 +191,7 @@ def base_rates(dates):
     for code, d in allpx.items():
         if len(d) < 30:
             continue
+        d = adjust_splits(d)
         o, h, l, c, v = (d[k].astype(float).values for k in ("Open", "High", "Low", "Close", "Volume"))
         n = len(c)
         pos = {x.date().isoformat(): i for i, x in enumerate(d.index)}
@@ -524,7 +554,7 @@ def main():
     sig = clean(sig) if len(sig) else sig
     rep = clean(rep) if len(rep) else rep
     codes = set(sig.code if len(sig) else []) | set(rep.code if len(rep) else [])
-    px = prices(sorted(codes) + [BENCH])
+    px = {k: adjust_splits(v) for k, v in prices(sorted(codes) + [BENCH]).items()}
     dates = set(sig.date if len(sig) else []) | set(rep.date if len(rep) else [])
     # 全体の成功率は保存しておき、今回計算できた日だけ上書きする（古い日は株価が手元にないため）
     base = load_base()
