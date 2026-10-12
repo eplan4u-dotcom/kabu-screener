@@ -21,7 +21,7 @@ import screener as S
 LOG = os.path.join(S.BASE, "data", "signals", "replay.csv")
 COLS = ["date", "list", "code", "name", "sector", "close", "alert", "stop", "dtype", "rule", "ver"]
 RULE = {"A": "alert", "B": "next_open", "C": "next_open", "D": "alert", "T": "next_open"}
-DEFAULT_FROM, DEFAULT_TO = "2026-06-01", "2026-10-08"
+DEFAULT_FROM, DEFAULT_TO = "2025-10-14", "2026-10-08"
 
 
 def fetch(codes):

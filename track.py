@@ -412,6 +412,8 @@ th{{font-size:12px;color:var(--mut)}} td:first-child,th:first-child{{text-align:
 「同業種」は銘柄ごとに同じ日・同じ業種（東証33業種）の成功率を基準にした値（対象が{SECTOR_MIN}銘柄未満の業種は全体で代用）。全体との差だけプラスなら業種選びが、同業種との差もプラスならチャートの形そのものが効いています。</p>
 <div class="wrap"><table>{fhead}{first_rows(ev, base)}</table></div>
 
+{(lambda mh: f'<h2>月ごとの初動の成功率</h2><p class="note">下段は同じ月の全体の成功率との差。5件未満の月は件数のみ。季節や地合いによる差を見るための表です。</p><div class="wrap"><table>{mh[0]}{mh[1]}</table></div>' if mh[0] else "")(month_rows(ev, base)) if replay else ""}
+
 <h2>初動の成功率（地合い急変日を除く）</h2>
 <p class="note">地合い急変日＝TOPIXがその日±{SHOCK_DAY:.0f}%以上、または直近5日で{SHOCK_5D:.0f}%以下の日に出た銘柄（下の一覧に⚡）。
 大きな下落や一斉反発のような外的要因を除いた、ふだんの成績です。該当日: {E("、".join(d[5:] for d in shock_days)) or "なし"}</p>
@@ -437,6 +439,82 @@ def clean(sig):
     return sig
 
 
+BASE_CACHE = os.path.join(BASE, "data", "signals", "base_rates.json")
+FROZEN_DAYS = 45    # 株価データの先頭からこの日数以内のシグナルは、手元の株価では計算し直せないので前回の結果を使う
+
+
+def load_base():
+    import json
+    if not os.path.exists(BASE_CACHE):
+        return dict(all={}, sec={})
+    with open(BASE_CACHE, encoding="utf-8") as f:
+        b = json.load(f)
+    return dict(all={k: tuple(v) for k, v in b.get("all", {}).items()},
+                sec={tuple(k.split("|", 1)): tuple(v) for k, v in b.get("sec", {}).items()})
+
+
+def save_base(base):
+    import json
+    os.makedirs(os.path.dirname(BASE_CACHE), exist_ok=True)
+    with open(BASE_CACHE, "w", encoding="utf-8") as f:
+        json.dump(dict(all={k: [round(v[0], 2), v[1]] for k, v in sorted(base["all"].items())},
+                       sec={f"{k[0]}|{k[1]}": [round(v[0], 2), v[1]] for k, v in sorted(base["sec"].items())}),
+                  f, ensure_ascii=False, separators=(",", ":"))
+
+
+def month_rows(ev, base):
+    """月ごとの初動の成功率と、全体との差（季節・地合いの影響を見る）"""
+    j = ev[ev.get("first", pd.Series(index=ev.index, dtype=object)).isin(["成功", "失敗（損切り）", "失敗（届かず）"])] \
+        if "first" in ev else ev.iloc[0:0]
+    if j.empty:
+        return "", ""
+    months = sorted(j.date.str[:7].unique())
+    ball = base.get("all", {})
+    head = "<tr><th>リスト</th>" + "".join(f"<th>{m[2:4]}/{m[5:]}</th>" for m in months) + "</tr>"
+    rows = []
+    for key, (_, label, _) in LISTS.items():
+        cells = [html.escape(label)]
+        for m in months:
+            g = j[(j.list == key) & (j.date.str[:7] == m)]
+            if len(g) < 5:
+                cells.append(f'<span class="mut">{len(g)}件</span>' if len(g) else "-")
+                continue
+            rate = (g["first"] == "成功").mean() * 100
+            b = [ball[d][0] for d in g.date if d in ball]
+            diff = rate - np.mean(b) if b else np.nan
+            dtxt = "" if np.isnan(diff) else f'<div class="sub {"up" if diff > 0 else "dn"}">{diff:+.0f}pt</div>'
+            cells.append(f"{rate:.0f}%{dtxt}<div class=\"sub\">{len(g)}件</div>")
+        rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>")
+    allrow = ["全体（基準）"]
+    for m in months:
+        v = [r for d, (r, _) in ball.items() if d[:7] == m]
+        allrow.append(f"{np.mean(v):.0f}%" if v else "-")
+    rows.append("<tr>" + "".join(f"<td>{c}</td>" for c in allrow) + "</tr>")
+    return head, "".join(rows)
+
+
+def evaluate_replay(rep, px):
+    """手元の株価（約1年）より古いシグナルは、前回計算した結果を引き継ぐ"""
+    bench = px.get(BENCH)
+    prev_path = os.path.join(OUT, "replay.csv")
+    if bench is None or not os.path.exists(prev_path):
+        return evaluate(rep, px)
+    start = (bench.index[0] + pd.Timedelta(days=FROZEN_DAYS)).date().isoformat()
+    old = rep[rep.date < start]
+    if old.empty:
+        return evaluate(rep, px)
+    prev = pd.read_csv(prev_path, dtype={"code": str, "date": str, "dtype": str})
+    prev["dtype"] = prev.dtype.fillna("").astype(str).str.replace(".0", "", regex=False)
+    keep = prev[prev.date < start].merge(old[["date", "list", "code"]], on=["date", "list", "code"])
+    redo = rep[rep.date >= start]
+    missing = old.merge(keep[["date", "list", "code"]], on=["date", "list", "code"], how="left", indicator=True)
+    missing = missing[missing._merge == "left_only"].drop(columns="_merge")
+    parts = [keep, evaluate(redo, px) if len(redo) else None, evaluate(missing, px) if len(missing) else None]
+    out = pd.concat([x for x in parts if x is not None], ignore_index=True)
+    out["shock"] = out.shock.astype(str).str.lower().isin(["true", "1"])
+    return out
+
+
 def main():
     sig = ingest()
     rep = pd.read_csv(REPLAY_LOG, dtype={"code": str, "date": str}) if os.path.exists(REPLAY_LOG) else pd.DataFrame()
@@ -448,13 +526,18 @@ def main():
     codes = set(sig.code if len(sig) else []) | set(rep.code if len(rep) else [])
     px = prices(sorted(codes) + [BENCH])
     dates = set(sig.date if len(sig) else []) | set(rep.date if len(rep) else [])
-    base = base_rates(sorted(dates))
+    # 全体の成功率は保存しておき、今回計算できた日だけ上書きする（古い日は株価が手元にないため）
+    base = load_base()
+    new = base_rates(sorted(dates))
+    base["all"].update(new.get("all", {}))
+    base["sec"].update(new.get("sec", {}))
+    save_base(base)
     if len(sig):
         ev = evaluate(sig, px)
         write(ev, base)
         log(f"成績ページを更新: {len(ev):,}件")
     if len(rep):
-        evr = evaluate(rep, px)
+        evr = evaluate_replay(rep, px)
         write(evr, base, replay=True)
         log(f"再現の成績ページを更新: {len(evr):,}件")
 

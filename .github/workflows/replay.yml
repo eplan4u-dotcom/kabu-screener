@@ -4,7 +4,7 @@ on:
     inputs:
       date_from:
         description: '再現の開始日（YYYY-MM-DD）'
-        default: '2026-06-01'
+        default: '2025-10-14'
       date_to:
         description: '再現の終了日（YYYY-MM-DD）'
         default: '2026-10-08'
@@ -20,7 +20,7 @@ concurrency:
 jobs:
   replay:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
