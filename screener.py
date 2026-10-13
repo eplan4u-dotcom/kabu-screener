@@ -41,6 +41,11 @@ CFG = dict(
 )
 # ======================================================
 
+# ===== HYPER SBI 2 取込用CSV =====
+HSBI_PER_FILE = 50       # 1リストの上限（HYPER SBI 2 は50銘柄まで）
+HSBI_MAX_RATIO = None    # 信用倍率の上限。例: 10 にすると10倍以下だけ（売残0は除外）。None で絞らない
+# ===================================
+
 
 MARGIN, MARGIN_INFO = {}, {}
 MARKET = {}   # 地合い（TOPIX連動ETF 1306 の25日線・20日騰落）
@@ -597,9 +602,46 @@ rows.forEach(r=>b.appendChild(r));}}
                     ("T_theme_spike", T)):
         x.drop(columns=drop, errors="ignore").to_csv(os.path.join(OUT, f"{name}_{date}.csv"),
                                                      index=False, encoding="utf-8-sig")
+    write_hypersbi(date, A, B, C, D, T)
     write_summary(df, A, B, C, T, D, date)
     write_all_json(date, A, B, C, D, T)
     return path
+
+
+def write_hypersbi(date, A, B, C, D, T):
+    """A→B→C→D→別枠の順に連結し、重複を除いて50銘柄ごとに HYPER SBI 2 の銘柄リスト形式で出力。
+    形式は HYPER SBI 2 のエクスポートと同じ「コード,銘柄名,TKY,,,,,,」（Shift_JIS・CRLF・見出しなし）"""
+    d = os.path.join(OUT, "hypersbi")
+    os.makedirs(d, exist_ok=True)
+    for f in os.listdir(d):   # 前回分は消して、常に最新だけ置く（過去分はメールと git 履歴に残る）
+        if f.endswith(".csv"):
+            os.remove(os.path.join(d, f))
+    rows, seen = [], set()
+    for x in (A, B, C, D, T):
+        for _, r in x.iterrows():
+            code = str(r.code)
+            if code in seen:
+                continue
+            if HSBI_MAX_RATIO is not None:
+                ratio = r.get("m_ratio")
+                if _num(ratio):
+                    if ratio > HSBI_MAX_RATIO:
+                        continue
+                elif _num(r.get("m_buy")) and r.get("m_buy", 0) > 0:   # 売残0（倍率が出ない）は除外
+                    continue
+            seen.add(code)
+            name = str(r["name"]).replace(",", "，").replace('"', "")
+            rows.append(f"{code},{name},TKY,,,,,,")
+    n = max(1, -(-len(rows) // HSBI_PER_FILE))
+    for i in range(n):
+        part = rows[i * HSBI_PER_FILE:(i + 1) * HSBI_PER_FILE]
+        if not part:
+            break
+        suf = f"_{i + 1}of{n}" if n > 1 else ""
+        with open(os.path.join(d, f"hypersbi_{date}{suf}.csv"), "w", encoding="cp932", errors="replace",
+                  newline="") as f:
+            f.write("\r\n".join(part) + "\r\n")
+    log(f"HYPER SBI 2 用CSV: {len(rows)}銘柄・{n if rows else 0}ファイル")
 
 
 def write_all_json(date, A, B, C, D, T):

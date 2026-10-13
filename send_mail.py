@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """docs/summary.txt を Gmail で送る。GMAIL_USER / GMAIL_APP_PASSWORD が未設定なら何もしない"""
-import os, smtplib, sys
+import os, smtplib, sys, glob
+from email.mime.base import MIMEBase
+from email import encoders
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
@@ -29,10 +31,19 @@ if w_html and body_html:
     mark = "結果ページを開く</a><br>"
     body_html = body_html.replace(mark, mark + w_html, 1) if mark in body_html else w_html + body_html
 
-msg = MIMEMultipart("alternative")
-msg.attach(MIMEText(body, "plain", "utf-8"))
+alt = MIMEMultipart("alternative")
+alt.attach(MIMEText(body, "plain", "utf-8"))
 if body_html:
-    msg.attach(MIMEText(body_html, "html", "utf-8"))
+    alt.attach(MIMEText(body_html, "html", "utf-8"))
+msg = MIMEMultipart("mixed")
+msg.attach(alt)
+# HYPER SBI 2 取込用CSV（screener.py が docs/hypersbi/ に出力）を添付
+for p in sorted(glob.glob("docs/hypersbi/*.csv")):
+    part = MIMEBase("text", "csv")
+    part.set_payload(open(p, "rb").read())
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", "attachment", filename=os.path.basename(p))
+    msg.attach(part)
 msg["Subject"] = Header(subject, "utf-8")
 msg["From"] = user
 msg["To"] = to
