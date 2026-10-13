@@ -26,6 +26,8 @@ JPX_FALLBACK = [
 CFG = dict(
     min_turnover=3e8,      # 20日平均の売買代金（円）。これ未満は除外
     min_price=200,         # 株価の下限（円）
+    thin_price=1000,       # 「薄」の印：この株価未満で…
+    thin_turnover=10e8,    # …20日平均の売買代金がこれ未満（除外はしない。印のみ）
     range_days=60,         # 何日間の高値を「上値（レンジ上限）」とみなすか
     min_base_days=10,      # 上値をつけてから最低何日たっているか（レンジ形成の確認）
     near_pct=5.0,          # ブレイク待ち：上値まで何%以内か
@@ -408,10 +410,16 @@ def tv(code):
     return f"https://jp.tradingview.com/chart/?symbol=TSE:{code}"
 
 
+def is_thin(r):
+    """低位で売買代金が小さい（板が薄く値が飛びやすい）。2026-10-13 の再現では成績はむしろ良かったので、除外せず印だけ"""
+    return _num(r.get("turnover20")) and r.close < CFG["thin_price"] and r.turnover20 < CFG["thin_turnover"]
+
+
 def name_cell(r):
     """1行目: 銘柄名（四季報企業ページ）／2行目: コード（TradingView）・業種・株探"""
     sector = html.escape(str(r.sector)).replace("・", "")
     return (f'{WU.star(r.code)}<a class="nm" href="{shikiho_co(r.code)}" target="_blank">{html.escape(r["name"])}</a>'
+            + (' <span class="thin">薄</span>' if is_thin(r) else '') +
             f'<div class="sub"><a class="nm" href="{tv(r.code)}" target="_blank">{r.code}</a>・{sector}・'
             f'<a href="https://kabutan.jp/stock/chart?code={r.code}" target="_blank">株探</a></div>')
 
@@ -528,7 +536,8 @@ def write_html(df, A, B, C, T, D):
     mbox = f'<p class="mk {mcls}">{html.escape(mline)}</p>' if mline else ""
     awarn_html = f'<p class="note warn">{html.escape(awarn)}</p>' if awarn else ""
     cfg_txt = (f"売買代金{CFG['min_turnover']/1e8:.0f}億円以上・株価{CFG['min_price']}円以上／"
-               f"上値＝過去{CFG['range_days']}日高値（{CFG['min_base_days']}日以上前）")
+               f"上値＝過去{CFG['range_days']}日高値（{CFG['min_base_days']}日以上前）／"
+               f"「薄」＝株価{CFG['thin_price']:,}円未満かつ売買代金{CFG['thin_turnover']/1e8:.0f}億円未満（板が薄く値が飛びやすい。除外はしていない）")
     page = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>スクリーナー {date}</title>
@@ -549,7 +558,7 @@ td:nth-child(1),th:nth-child(1){{text-align:left;position:sticky;left:0;z-index:
 th:nth-child(1){{z-index:3}}
 td:nth-child(1) .sub{{white-space:nowrap}}
 a.spark{{display:inline-block;padding:4px 0}} a.spark svg{{display:block}}
-.sub{{font-size:11px;color:var(--mut)}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
+.sub{{font-size:11px;color:var(--mut)}} .thin{{font-size:11px;padding:0 4px;border:1px solid var(--mut);border-radius:4px;color:var(--mut);white-space:nowrap}} .up{{color:var(--up)}} .dn{{color:var(--dn)}}
 a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}} .empty{{color:var(--mut)}} .warn{{color:#d97706;font-weight:600}}
 .mk{{margin:8px 0 4px;padding:8px 12px;border-radius:8px;font-weight:600;font-size:14px}} .mk-ok{{background:rgba(209,52,58,.10);color:var(--up)}} .mk-ng{{background:rgba(31,138,85,.12);color:var(--dn)}}
 {WU.CSS}
@@ -691,7 +700,7 @@ def d_note(D):
 def write_summary(df, A, B, C, T, D, date):
     """メール本文（テキスト）を書き出す"""
     def name(r):
-        return f"{r.code} {r['name']}（{r.get('sector', '')}）"
+        return f"{r.code} {r['name']}（{r.get('sector', '')}）" + ("［薄］" if is_thin(r) else "")
 
     def room(r):
         return "1年高値更新" if r.room1y <= 0 else f"1年高値まで{r.room1y:.1f}%"
@@ -741,7 +750,8 @@ def write_summary_html(df, A, B, C, T, D, date):
         """1行目: 銘柄名・コード・業種＋内容／2行目: 信用倍率…／銘柄間は空行"""
         m = margin_html(r)
         return (f'<a href="{shikiho_co(r.code)}" style="color:#1a56db;text-decoration:none;font-weight:600;">{E(r["name"])}</a>'
-                f' <a href="{tv(r.code)}" style="color:#888;font-size:13px;text-decoration:none;">{r.code}</a>'
+                + (' <span style="font-size:11px;padding:0 4px;border:1px solid #999;border-radius:4px;color:#888;">薄</span>' if is_thin(r) else '')
+                + f' <a href="{tv(r.code)}" style="color:#888;font-size:13px;text-decoration:none;">{r.code}</a>'
                 f'<span style="color:#888;font-size:13px;">・{E(str(r.get("sector", "")))}</span>　{line1}'
                 + (f'<br>{m}' if m else '') + '<br><br>')
 
