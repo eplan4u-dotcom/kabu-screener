@@ -625,19 +625,15 @@ def write_hypersbi(date, A, B, C, D, T):
     for f in os.listdir(d):   # 前回分は消して、常に最新だけ置く（過去分はメールと git 履歴に残る）
         if f.endswith(".csv"):
             os.remove(os.path.join(d, f))
-    def memo(k, r):   # メモ欄（9列目）。カンマは区切りと衝突するので金額は桁区切りなし
+    def memo(k, r):   # メモ欄（9列目）。アラートがあるのは A・D だけ。他はリスト記号のみ
         try:
             if k == "A":
-                return f"A ブレイク待ち アラート{r.res:.0f}"
-            if k == "B":
-                return f"B 当日ブレイク 上値{r.res:.0f}"
-            if k == "C":
-                return f"C {int(r.streak)}日連騰"
+                return f"A {r.res:.0f}"
             if k == "D":
-                return f"D {r.d_type}日線3連陽 アラート{r.d_alert:.0f} 損切{r.d_stop:.0f}"
-            return "別枠 テーマ急騰"
+                return f"D {r.d_alert:.0f}"
         except Exception:
-            return k
+            pass
+        return {"T": "別"}.get(k, k)
     rows, seen = [], set()
     for k, x in (("A", A), ("B", B), ("C", C), ("D", D), ("T", T)):
         for _, r in x.iterrows():
