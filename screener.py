@@ -619,14 +619,27 @@ rows.forEach(r=>b.appendChild(r));}}
 
 def write_hypersbi(date, A, B, C, D, T):
     """A→B→C→D→別枠の順に連結し、重複を除いて50銘柄ごとに HYPER SBI 2 の銘柄リスト形式で出力。
-    形式は HYPER SBI 2 のエクスポートと同じ「コード,銘柄名,TKY,,,,,,」（Shift_JIS・CRLF・見出しなし）"""
+    形式は HYPER SBI 2 のエクスポートと同じ「コード,銘柄名,TKY,,,,,,メモ」（9列目がメモ欄）（Shift_JIS・CRLF・見出しなし）"""
     d = os.path.join(OUT, "hypersbi")
     os.makedirs(d, exist_ok=True)
     for f in os.listdir(d):   # 前回分は消して、常に最新だけ置く（過去分はメールと git 履歴に残る）
         if f.endswith(".csv"):
             os.remove(os.path.join(d, f))
+    def memo(k, r):   # メモ欄（9列目）。カンマは区切りと衝突するので金額は桁区切りなし
+        try:
+            if k == "A":
+                return f"A ブレイク待ち アラート{r.res:.0f}"
+            if k == "B":
+                return f"B 当日ブレイク 上値{r.res:.0f}"
+            if k == "C":
+                return f"C {int(r.streak)}日連騰"
+            if k == "D":
+                return f"D {r.d_type}日線3連陽 アラート{r.d_alert:.0f} 損切{r.d_stop:.0f}"
+            return "別枠 テーマ急騰"
+        except Exception:
+            return k
     rows, seen = [], set()
-    for x in (A, B, C, D, T):
+    for k, x in (("A", A), ("B", B), ("C", C), ("D", D), ("T", T)):
         for _, r in x.iterrows():
             code = str(r.code)
             if code in seen:
@@ -640,7 +653,7 @@ def write_hypersbi(date, A, B, C, D, T):
                     continue
             seen.add(code)
             name = str(r["name"]).replace(",", "，").replace('"', "")
-            rows.append(f"{code},{name},TKY,,,,,,")
+            rows.append(f"{code},{name},TKY,,,,,,{memo(k, r).replace(',', '')}")
     n = max(1, -(-len(rows) // HSBI_PER_FILE))
     for i in range(n):
         part = rows[i * HSBI_PER_FILE:(i + 1) * HSBI_PER_FILE]
