@@ -1,0 +1,35 @@
+name: intraday
+on:
+  schedule:
+    - cron: '45 7 * * 1-5'   # 平日 16:45（日本時間）
+  workflow_dispatch:
+  push:
+    paths:
+      - 'intraday.py'
+      - '.github/workflows/intraday.yml'
+permissions:
+  contents: write
+concurrency:
+  group: kabu-publish
+  cancel-in-progress: false
+jobs:
+  intraday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python intraday.py
+        env:
+          SCREENER_OUT: docs
+      - name: publish
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/intraday docs/intraday
+          git commit -m "intraday $(date +%F)" || echo "no changes"
+          git pull --rebase origin main
+          git push

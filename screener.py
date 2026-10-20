@@ -565,7 +565,7 @@ a{{color:var(--acc)}} a.nm{{color:inherit;text-decoration:underline;text-decorat
 </style></head><body><main>
 <h1>東証スクリーナー　{date}</h1>
 {mbox}
-<p class="note"><a href="track/">抽出結果のその後（成績ページ）</a></p>
+<p class="note"><a href="track/">抽出結果のその後（成績ページ）</a>　<a href="intraday/">5分足の並べ見</a></p>
 <p class="note">対象 {len(df):,}銘柄（{html.escape(cfg_txt)}）。見出しをクリックで並べ替え。{html.escape(margin_note())}</p>
 <div class="tabs"><a id="wtab" href="#w">★ ウォッチ</a><a href="#a">A ブレイク待ち {len(A)}</a><a href="#b">B 当日ブレイク {len(B)}</a><a href="#c">C 静かな連騰 {len(C)}</a><a href="#d">D 押し目3連陽 {len(D)}</a><a href="#t">別枠 テーマ急騰 {len(T)}</a></div>
 

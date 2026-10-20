@@ -13,6 +13,7 @@
 - `watch_mail.py` … メール冒頭のウォッチ欄。Secrets `WATCHLIST_SHEET`（Googleスプレッドシート）を優先、読めなければ `WATCHLIST`
 - `docs/data/all.json`（全銘柄の当日指標）・`docs/data/names.csv`（コードと銘柄名。シートの IMPORTDATA 用）を毎日出力
 - `docs/hypersbi/` … HYPER SBI 2 の銘柄リスト取込用CSV（9列目のメモ欄にリスト記号とアラート（例「A 2709」、B・C・別枠は記号のみ）、A→B→C→D→別枠を連結・重複除外・50銘柄ごとに分割、Shift_JIS）。毎日の結果メールに添付。信用倍率で絞る場合は screener.py の `HSBI_MAX_RATIO`（例: 10）
+- `intraday.py` … 5分足の並べ見（`docs/intraday/`）。東京エレクトロン・イビデン・リクルートの日足（約1年、25・50・75日線）と、1日1枚の5分足（日経平均の線、10:20〜10:40の帯、前日終値の点線、前場安値の印）。平日16:45に Actions の intraday で実行。Yahoo の5分足は直近60日分しか取れないため、`data/intraday/<コード>.csv` に毎日追記して蓄積。銘柄は `TICKERS` で変更
 - 手動実行は workflow_dispatch。`mail=false` でメールを送らずに結果ページだけ更新できる
 
 ## リスト
