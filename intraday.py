@@ -75,6 +75,27 @@ def merge_store(name, new):
     return df
 
 
+def fill_open_bar(day, drow):
+    """Yahoo の5分足は 9:00 の足が欠けている日が多い。日足の始値・高値・安値から 9:00 の足を補う。
+    返り値の syn 列が True の足は補完したもの（グラフでは中抜きで表示）"""
+    day = day.copy()
+    day["syn"] = False
+    if drow is None or day.empty or day.index[0].strftime("%-H:%M") == "9:00":
+        return day
+    first = day.iloc[0]
+    o = float(drow.open)
+    hi = max(o, first.open)
+    lo = min(o, first.open)
+    # 日足の高値・安値が5分足のどこにもなければ、欠けた寄りの時間帯についたもの
+    if float(drow.high) > day.high.max():
+        hi = float(drow.high)
+    if float(drow.low) < day.low.min():
+        lo = float(drow.low)
+    t0 = pd.Timestamp(day.index[0].date()) + pd.Timedelta(hours=9)
+    bar = pd.DataFrame([{"open": o, "high": hi, "low": lo, "close": float(first.open), "volume": 0, "syn": True}], index=[t0])
+    return pd.concat([bar, day])
+
+
 # ---------- 描画の部品 ----------
 def nice_ticks(lo, hi, n=5):
     span = hi - lo
@@ -130,7 +151,9 @@ def intraday_svg(day, idx_day, prev_close):
     pad = (hi - lo) * 0.06 or hi * 0.005
     lo, hi = lo - pad, hi + pad
     y = lambda v: T + (hi - v) / (hi - lo) * (H - T)
-    vmax = max(r.volume for _, r in bars) or 1
+    vols = sorted(r.volume for _, r in bars if r.volume > 0)
+    # 寄りや後場寄りの1本だけが突出して他が潰れないよう、上位5%で頭打ちにする
+    vmax = (vols[int(len(vols) * 0.95) - 1] * 1.3 if len(vols) >= 10 else max(vols, default=1)) or 1
 
     g = []
     # 10:20〜10:40 の帯
@@ -156,12 +179,14 @@ def intraday_svg(day, idx_day, prev_close):
     bw = max(step * 0.62, 1.5)
     for i, r in bars:
         c = "cu" if r.close >= r.open else "cd"
+        syn = bool(r.get("syn", False))
         x = xs(i)
         g.append(f'<line x1="{x:.1f}" x2="{x:.1f}" y1="{y(r.high):.1f}" y2="{y(r.low):.1f}" class="{c}w"/>')
         top, bot = y(max(r.open, r.close)), y(min(r.open, r.close))
-        g.append(f'<rect x="{x - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{max(bot - top, 0.8):.1f}" class="{c}"/>')
-        vh = r.volume / vmax * VH
-        g.append(f'<rect x="{x - bw / 2:.1f}" y="{H + 6 + VH - vh:.1f}" width="{bw:.1f}" height="{vh:.1f}" class="{c} vol"/>')
+        g.append(f'<rect x="{x - bw / 2:.1f}" y="{top:.1f}" width="{bw:.1f}" height="{max(bot - top, 0.8):.1f}" class="{c + "s" if syn else c}"/>')
+        if not syn:
+            vh = min(r.volume / vmax, 1) * VH
+            g.append(f'<rect x="{x - bw / 2:.1f}" y="{H + 6 + VH - vh:.1f}" width="{bw:.1f}" height="{vh:.1f}" class="{c} vol"/>')
     # 前場の安値に印
     morning = [(i, r) for i, r in bars if i < N_MORNING]
     if morning:
@@ -230,6 +255,7 @@ main{max-width:860px;margin:0 auto;padding:20px 16px 60px} h1{font-size:21px;mar
 .ch{width:100%;height:auto;display:block}
 .ch .grid{stroke:var(--line);stroke-width:1} .ch .ax{fill:var(--mut);font-size:11px}
 .ch .cu{fill:var(--up)} .ch .cd{fill:var(--dn)} .ch .cuw{stroke:var(--up);stroke-width:1} .ch .cdw{stroke:var(--dn);stroke-width:1}
+.ch .cus{fill:var(--card);stroke:var(--up);stroke-width:1.2} .ch .cds{fill:var(--card);stroke:var(--dn);stroke-width:1.2}
 .ch .vol{opacity:.55} .ch .band{fill:var(--band)} .ch .lunch{stroke:var(--line);stroke-width:1;stroke-dasharray:2 3}
 .ch .prev{stroke:var(--mut);stroke-width:1;stroke-dasharray:4 3;opacity:.7}
 .ch .nk{fill:none;stroke:var(--nk);stroke-width:1.4;opacity:.75} .ch .lowmk{fill:var(--acc)}
@@ -261,9 +287,10 @@ def build_stock(code, name, m5, daily, idx5):
              f'<div class="card">{daily_svg(daily)}</div>',
              '<h2>5分足（新しい順）</h2>',
              '<p class="note">薄い紫の線＝日経平均（当日始値からの変化率を、この銘柄の始値にそろえて表示）／'
-             '黄色の帯＝10:20〜10:40／点線＝前日終値／青い点＝前場の安値</p>']
+             '黄色の帯＝10:20〜10:40／点線＝前日終値／青い点＝前場の安値／中抜きの足＝Yahooに9:00の足が無い日に、日足の始値・高値・安値から補った足</p>']
     for d in days:
-        day = m5[m5.index.date == d]
+        drow = daily.loc[pd.Timestamp(d)] if not daily.empty and pd.Timestamp(d) in daily.index else None
+        day = fill_open_bar(m5[m5.index.date == d], drow)
         idx_day = idx5[idx5.index.date == d] if not idx5.empty else None
         prev = None
         ts = pd.Timestamp(d)
