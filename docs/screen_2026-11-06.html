@@ -1,0 +1,145 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>スクリーナー 2026-11-06</title>
+<style>
+:root{--bg:#fafaf9;--fg:#1c1c1a;--mut:#6b6b66;--line:#e4e4e0;--card:#fff;--up:#d1343a;--dn:#1f8a55;--acc:#2a5bd7}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ececea;--mut:#9a9a94;--line:#2c2c2a;--card:#1c1c1b;--up:#f06a6e;--dn:#4cc38a;--acc:#7aa2ff}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 "Yu Gothic UI","Meiryo",sans-serif}
+main{max-width:1400px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0 0 4px} h2{font-size:17px;margin:32px 0 4px}
+.note{color:var(--mut);font-size:13px;margin:0 0 10px}
+.tabs a{display:inline-block;margin:10px 8px 0 0;padding:6px 12px;border:1px solid var(--line);border-radius:999px;color:var(--fg);text-decoration:none;background:var(--card)}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+table{border-collapse:collapse;width:100%;white-space:nowrap}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:right;vertical-align:middle}
+th{position:sticky;top:0;background:var(--card);font-size:12px;color:var(--mut);cursor:pointer;user-select:none}
+td:nth-child(1),th:nth-child(1){text-align:left;position:sticky;left:0;z-index:2;background:var(--card);
+  box-shadow:6px 0 6px -6px rgba(0,0,0,.35);min-width:8.5em;max-width:11em;white-space:normal;line-height:1.35}
+th:nth-child(1){z-index:3}
+td:nth-child(1) .sub{white-space:nowrap}
+a.spark{display:inline-block;padding:4px 0} a.spark svg{display:block}
+.sub{font-size:11px;color:var(--mut)} .thin{font-size:11px;padding:0 4px;border:1px solid var(--mut);border-radius:4px;color:var(--mut);white-space:nowrap} .up{color:var(--up)} .dn{color:var(--dn)}
+a{color:var(--acc)} a.nm{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px} .empty{color:var(--mut)} .warn{color:#d97706;font-weight:600}
+.mk{margin:8px 0 4px;padding:8px 12px;border-radius:8px;font-weight:600;font-size:14px} .mk-ok{background:rgba(209,52,58,.10);color:var(--up)} .mk-ng{background:rgba(31,138,85,.12);color:var(--dn)}
+
+.star{border:0;background:none;color:var(--mut);font-size:16px;line-height:1;padding:0 4px 0 0;cursor:pointer;vertical-align:-1px}
+.star.on{color:#d97706}
+.wctl{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.wctl input{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);width:9em}
+.wctl button,.wbtn{font:inherit;padding:7px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);cursor:pointer}
+.wbtn{padding:2px 8px;font-size:12px}
+.bdg{display:inline-block;padding:0 6px;margin:0 2px 0 0;border-radius:6px;background:var(--line);font-size:12px;font-weight:600}
+
+</style></head><body><main>
+<h1>東証スクリーナー　2026-11-06</h1>
+<p class="mk mk-ng">地合い×：TOPIX（1306）は25日線の下、直近20日 -11.1%</p>
+<p class="note"><a href="track/">抽出結果のその後（成績ページ）</a>　<a href="intraday/">5分足の並べ見</a></p>
+<p class="note">対象 1,179銘柄（売買代金3億円以上・株価200円以上／上値＝過去60日高値（10日以上前）／「薄」＝株価1,000円未満かつ売買代金10億円未満（板が薄く値が飛びやすい。除外はしていない））。見出しをクリックで並べ替え。信用残はJPX公表 2026-11-05申込現在（前日比、週＝2026-10-29比）。信用倍率5倍以上・買残が週+10%以上はオレンジ。</p>
+<div class="tabs"><a id="wtab" href="#w">★ ウォッチ</a><a href="#a">A ブレイク待ち 0</a><a href="#b">B 当日ブレイク 0</a><a href="#c">C 静かな連騰 1</a><a href="#d">D 押し目3連陽 0</a><a href="#t">別枠 テーマ急騰 0</a></div>
+
+
+<h2 id="w">★ ウォッチリスト <span id="wn" class="sub"></span></h2>
+<div class="wctl">
+  <input id="wi" placeholder="コード 例 7203" inputmode="text" autocomplete="off" onkeydown="if(event.key==='Enter')wAdd()">
+  <button onclick="wAdd()">追加</button>
+  <button onclick="wBulk()">まとめて追加</button>
+  <button onclick="wCopy()">コード一覧をコピー</button>
+</div>
+<p class="note">各表の銘柄名の左の☆でも追加できます。リストと取得単価は、この端末のブラウザの中だけに保存されます（公開されません。別の端末とは共有されません）。
+売買代金の条件に関係なく、全銘柄から表示します。「取得単価」を入れると損益を表示。線や安値までの%がオレンジ＝終値がその下（手仕舞いの目安を割っている）。<span id="wdate"></span></p>
+<div id="wt"></div>
+
+
+<h2 id="a">A. ブレイク待ち（アラート候補） 0銘柄</h2>
+<p class="note">上値の5%以内・出来高が細っている・50日線の上。上値の価格にアラートを置く候補。赤の点線が上値。業種順位は業種の直近20日騰落の順位（上位20%は赤）。</p>
+<p class="note warn">今日は地合い×（TOPIXが25日線の下）。過去1年の再現では、この地合いの A は全体を下回った（成功率15%）。</p>
+<p class="empty">該当なし</p>
+
+<h2 id="b">B. 当日ブレイク 0銘柄</h2>
+<p class="note">終値で上値を超え、出来高が50日平均の1.5倍以上。「上値からの上昇」が大きいほど、今から買うと損切り幅が広がる。「1年高値まで」がオレンジ（5%未満）は、すぐ上に売り圧力あり。</p>
+<p class="empty">該当なし</p>
+
+<h2 id="c">C. 静かな連騰 1銘柄</h2>
+<p class="note">3日以上続伸・1日+5%以内・窓開け3%以内・5日＞25日＞50日線・出来高は平常の1〜3倍・25日線から8%以内（走り終わりを除外）。</p>
+<div class="wrap"><table><thead><tr><th onclick="sortT(this)">銘柄</th><th onclick="sortT(this)">終値</th><th onclick="sortT(this)">前日比</th><th onclick="sortT(this)">連騰</th><th onclick="sortT(this)">最大上昇/日</th><th onclick="sortT(this)">25日線乖離</th><th onclick="sortT(this)">出来高比</th><th onclick="sortT(this)">業種順位</th><th onclick="sortT(this)">あと</th><th onclick="sortT(this)">信用倍率</th><th onclick="sortT(this)">買残</th><th onclick="sortT(this)">年高まで</th><th onclick="sortT(this)">60日</th></tr></thead><tbody><tr><td data-v="3028"><button class="star" data-c="3028" onclick="tw(this)" title="ウォッチに追加">☆</button><a class="nm" href="https://shikiho.toyokeizai.net/stocks/3028" target="_blank">アルペン</a><div class="sub"><a class="nm" href="https://jp.tradingview.com/chart/?symbol=TSE:3028" target="_blank">3028</a>・小売業・<a href="https://kabutan.jp/stock/chart?code=3028" target="_blank">株探</a></div></td><td data-v="2476.0">2,476.0</td><td data-v="0.773300773300778"><span class="up">0.77%</span></td><td data-v="6"><b>6日</b></td><td data-v="4.37553101104502">4.4%</td><td data-v="4.063345829900977">4.1%</td><td data-v="2.812108221781858">2.81倍</td><td data-v="3.0"><span class="up">3位</span><div class="sub">/32業種</div></td><td data-v="0.6865912762520132">0.7%</td><td data-v="0.10796915167095116"><span>0.11倍</span></td><td data-v="-26.637554585152838"><span>週 -1.2万（-27%）</span><div class="sub">前日 -2.1万・残 3.4万</div></td><td data-v="0.6865912762520132"><span class="warn">0.7%</span><div class="sub">2,493</div></td><td data-v=""><a href="https://jp.tradingview.com/chart/?symbol=TSE:3028" target="_blank" class="spark"><svg width="120" height="32" viewBox="0 0 120 32"><line x1="0" x2="120" y1="0.0" y2="0.0" stroke="#e5484d" stroke-dasharray="3 2" stroke-width="1"/><polyline fill="none" stroke="#e5484d" stroke-width="1.5" points="0.0,29.8 2.0,20.1 4.1,21.0 6.1,21.0 8.1,20.1 10.2,20.8 12.2,20.8 14.2,20.8 16.3,17.1 18.3,17.4 20.3,17.0 22.4,18.3 24.4,18.5 26.4,18.2 28.5,16.8 30.5,15.8 32.5,16.5 34.6,21.6 36.6,25.5 38.6,28.1 40.7,24.3 42.7,27.7 44.7,32.0 46.8,29.3 48.8,30.4 50.8,26.5 52.9,25.0 54.9,28.6 56.9,26.2 59.0,26.9 61.0,26.8 63.1,23.4 65.1,23.2 67.1,23.4 69.2,23.5 71.2,17.0 73.2,22.6 75.3,22.8 77.3,23.4 79.3,23.7 81.4,23.8 83.4,23.1 85.4,16.7 87.5,17.7 89.5,11.8 91.5,6.8 93.6,9.7 95.6,7.9 97.6,9.7 99.7,11.3 101.7,8.2 103.7,12.8 105.8,21.3 107.8,29.8 109.8,28.4 111.9,23.2 113.9,22.9 115.9,20.7 118.0,5.4 120.0,2.5"/></svg></a></td></tr></tbody></table></div>
+
+<h2 id="d">D. 押し目からの3連陽 0銘柄</h2>
+<p class="note">上昇トレンド中（25日線＞75日線）に、安値が25日・50日・75日線のどれかまで下がり（少しの割り込みは可）、そこから陽線3本・安値切り上げで離れた銘柄。50・75日線型は25日線を奪回済み、3連陽の出来高は平常の1.5倍未満、60日の値動きが市場の中央値より強く、1年高値まで20%以内。相対強さの順。業種順位は業種の直近20日騰落の順位（強い業種の D は全体比で成績が良いが、業種の勢いによる分が大きい）。アラート＝3本目の高値、損切り目安＝タッチから3本目までの最安値。赤の点線は触れた線。3日上昇のオレンジは走りすぎ（損切り幅が広い）。「売り枯れ」は押し目の出来高が平常の0.8倍未満（参考の印）。</p>
+<p class="empty">該当なし</p>
+
+<h2 id="t">別枠. テーマ急騰 0銘柄</h2>
+<p class="note">上値は抜けたが、+15%以上または出来高が平常の10倍以上の急騰。ブレイク手法の対象外として参考表示。</p>
+<p class="empty">該当なし</p>
+</main>
+<script>
+function sortT(th){const t=th.closest('table'),i=[...th.parentNode.children].indexOf(th),b=t.tBodies[0];
+const asc=th.dataset.asc!=='1';th.dataset.asc=asc?'1':'0';
+const rows=[...b.rows].sort((x,y)=>{let a=x.cells[i].dataset.v,c=y.cells[i].dataset.v;const na=parseFloat(a),nc=parseFloat(c);
+if(!isNaN(na)&&!isNaN(nc))return asc?na-nc:nc-na;return asc?String(a).localeCompare(c,'ja'):String(c).localeCompare(a,'ja');});
+rows.forEach(r=>b.appendChild(r));}
+
+const WK='kabu_watch_v1';let WD=null,WDATE='';
+function wl(){try{const a=JSON.parse(localStorage.getItem(WK)||'[]');return Array.isArray(a)?a:[]}catch(e){return []}}
+function ws(a){try{localStorage.setItem(WK,JSON.stringify(a))}catch(e){alert('この端末では保存できません（プライベートブラウズなど）')}wRender()}
+function wNorm(s){s=String(s||'').trim().toUpperCase().replace(/[０-９Ａ-Ｚ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0));return /^[0-9][0-9A-Z]{3}$/.test(s)?s:null}
+function wHas(c){return wl().some(x=>x.c===c)}
+function tw(b){const c=b.dataset.c;const a=wl();const i=a.findIndex(x=>x.c===c);if(i>=0)a.splice(i,1);else a.push({c});ws(a)}
+function wAdd(){const el=document.getElementById('wi');const c=wNorm(el.value);if(!c){alert('4桁のコードを入れてください');return}
+  const a=wl();if(!a.some(x=>x.c===c))a.push({c});el.value='';ws(a)}
+function wDel(c){if(!confirm(c+' をウォッチから外しますか？'))return;ws(wl().filter(x=>x.c!==c))}
+function wCost(c){const a=wl();const it=a.find(x=>x.c===c);if(!it)return;
+  const v=prompt('取得単価（空欄で消去）',it.cost??'');if(v===null)return;
+  const cost=parseFloat(String(v).replace(/,/g,''));if(isNaN(cost)){delete it.cost;delete it.qty;ws(a);return}
+  it.cost=cost;const q=prompt('株数（省略可）',it.qty??'');const qty=parseFloat(String(q||'').replace(/,/g,''));
+  if(!isNaN(qty))it.qty=qty;else delete it.qty;ws(a)}
+function wBulk(){const v=prompt('コードをスペースか改行で区切って入力（取得単価は 7203@2500 の形で付けられます）');if(!v)return;
+  const a=wl();v.split(/[\s,、]+/).forEach(t=>{const [cc,pp]=t.split('@');const c=wNorm(cc);if(!c)return;
+    let it=a.find(x=>x.c===c);if(!it){it={c};a.push(it)}const p=parseFloat(pp);if(!isNaN(p))it.cost=p});ws(a)}
+function wCopy(){const t=wl().map(x=>x.cost!=null?x.c+'@'+x.cost:x.c).join(' ');if(!t){alert('ウォッチが空です');return}
+  const done=()=>alert('コピーしました:\n'+t+'\n\nメールにも載せる場合は、GitHub の Secrets「WATCHLIST」にこの内容を貼り付けてください。');
+  if(navigator.clipboard)navigator.clipboard.writeText(t).then(done,()=>prompt('コピーしてください',t));else prompt('コピーしてください',t)}
+function f1(v,nd=1){return v==null||isNaN(v)?'-':Number(v).toLocaleString('ja-JP',{minimumFractionDigits:nd,maximumFractionDigits:nd})}
+function pc(v){return v==null||isNaN(v)?'-':(v>=0?'+':'')+v.toFixed(1)+'%'}
+function E(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function wLine(p,ref,label){if(ref==null)return '<td data-v="">-</td>';const d=(p/ref-1)*100;
+  return `<td data-v="${d}"><span class="${d<0?'warn':''}">${pc(d)}</span><div class="sub">${f1(ref,0)}</div></td>`}
+function wSpark(sp,line){if(!sp||sp.length<2)return '';const w=120,h=32,vals=sp.filter(v=>v!=null);
+  const all=line?vals.concat([line]):vals,lo=Math.min(...all),hi=Math.max(...all),rg=(hi-lo)||1;
+  const pts=sp.map((v,i)=>`${(i*w/(sp.length-1)).toFixed(1)},${(h-(v-lo)/rg*h).toFixed(1)}`).join(' ');
+  const ref=line?`<line x1="0" x2="${w}" y1="${(h-(line-lo)/rg*h).toFixed(1)}" y2="${(h-(line-lo)/rg*h).toFixed(1)}" stroke="#d97706" stroke-dasharray="3 2"/>`:'';
+  const col=sp[sp.length-1]>=sp[0]?'#e5484d':'#30a46c';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${ref}<polyline fill="none" stroke="${col}" stroke-width="1.5" points="${pts}"/></svg>`}
+function wRender(){const a=wl();document.querySelectorAll('.star').forEach(b=>{const on=a.some(x=>x.c===b.dataset.c);b.textContent=on?'★':'☆';b.classList.toggle('on',on)});
+  document.getElementById('wn').textContent=a.length?a.length+'銘柄':'';
+  const tl=document.getElementById('wtab');if(tl)tl.textContent='★ ウォッチ '+a.length;
+  document.getElementById('wdate').textContent=WDATE?'（データ '+WDATE+'）':'';
+  const box=document.getElementById('wt');
+  if(!a.length){box.innerHTML='<p class="empty">まだありません。上の欄にコードを入れるか、各表の☆を押してください。</p>';return}
+  if(!WD){box.innerHTML='<p class="empty">データを読み込み中…</p>';return}
+  const head=['銘柄','終値','前日比','リスト','25日線','50日線','10日安値','上値','信用倍率','買残','年高まで','取得単価','60日'];
+  const rows=a.map(it=>{const x=WD[it.c];
+    if(!x)return `<tr><td data-v="${it.c}">${it.c}<div class="sub">データなし <button class="wbtn" onclick="wDel('${it.c}')">外す</button></div></td>`+'<td>-</td>'.repeat(head.length-1)+'</tr>';
+    const p=x.p,L=(x.L||'').split('').map(k=>`<span class="bdg">${k}${k==='D'&&x.dt?' '+x.dt:''}</span>`).join('')||'-';
+    const tv='https://jp.tradingview.com/chart/?symbol=TSE:'+x.c;
+    let cost='<td data-v=""><button class="wbtn" onclick="wCost(\''+x.c+'\')">入力</button></td>';
+    if(it.cost!=null){const g=(p/it.cost-1)*100,amt=it.qty?(p-it.cost)*it.qty:null;
+      cost=`<td data-v="${g}"><span class="${g>=0?'up':'dn'}">${pc(g)}</span>${amt!=null?` <span class="sub">${amt>=0?'+':''}${f1(amt,0)}円</span>`:''}`+
+        `<div class="sub">${f1(it.cost,1)}${it.qty?' × '+f1(it.qty,0):''} <button class="wbtn" onclick="wCost('${x.c}')">変更</button></div></td>`}
+    const ur=x.res!=null?(x.res/p-1)*100:null,hy=x.hy!=null?(x.hy/p-1)*100:null;
+    const mr=x.mr==null?(x.mb!=null?'<span class="sub">売残0</span>':'-'):`<span class="${x.mr>=5?'warn':''}">${x.mr.toFixed(2)}倍</span>`;
+    const mw=x.mwb==null?'-':`<span class="${x.mw!=null&&x.mw>=10?'warn':''}">週 ${f1(x.mwb/1e4,1)}万${x.mw!=null?'（'+(x.mw>=0?'+':'')+x.mw+'%）':''}</span>`;
+    return `<tr><td data-v="${x.c}"><a class="nm" href="https://shikiho.toyokeizai.net/stocks/${x.c}" target="_blank">${E(x.n)}</a>`+
+      `<div class="sub"><a class="nm" href="${tv}" target="_blank">${x.c}</a>・${E((x.s||'').replace(/・/g,''))}・<a href="https://kabutan.jp/stock/chart?code=${x.c}" target="_blank">株探</a> <button class="wbtn" onclick="wDel('${x.c}')">外す</button></div></td>`+
+      `<td data-v="${p}">${f1(p,1)}</td><td data-v="${x.ch}"><span class="${x.ch>=0?'up':'dn'}">${pc(x.ch)}</span></td>`+
+      `<td data-v="${x.L||''}">${L}</td>`+wLine(p,x.m25)+wLine(p,x.m50)+wLine(p,x.l10)+
+      `<td data-v="${ur??''}">${ur==null?'-':(ur>0?'あと '+ur.toFixed(1)+'%':'<span class="up">上抜け</span>')}<div class="sub">${f1(x.res,0)}</div></td>`+
+      `<td data-v="${x.mr??''}">${mr}</td><td data-v="${x.mw??''}">${mw}</td>`+
+      `<td data-v="${hy??''}">${hy==null?'-':(hy<=0?'<span class="up">更新</span>':`<span class="${hy<5?'warn':''}">${hy.toFixed(1)}%</span>`)}</td>`+
+      cost+`<td><a class="spark" href="${tv}" target="_blank">${wSpark(x.sp,it.cost??x.m25)}</a></td></tr>`});
+  box.innerHTML=`<div class="wrap"><table><thead><tr>${head.map(h=>`<th onclick="sortT(this)">${h}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`}
+fetch('data/all.json',{cache:'no-cache'}).then(r=>r.json()).then(j=>{WD={};j.stocks.forEach(x=>WD[x.c]=x);WDATE=j.date;wRender()})
+  .catch(()=>{document.getElementById('wt').innerHTML='<p class="empty">全銘柄データを読み込めませんでした。</p>'});
+wRender();
+
+
+</script></body></html>
